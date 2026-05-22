@@ -59,9 +59,9 @@ function PreBlock({ children, ...props }: React.HTMLAttributes<HTMLPreElement>) 
 }
 
 function InlineCode({ children, className, ...props }: React.HTMLAttributes<HTMLElement>) {
-  if (className) return <code className={className} {...props}>{children}</code>;
+  if (className) return <code className={cn("break-all whitespace-pre-wrap", className)} {...props}>{children}</code>;
   return (
-    <code className="px-1.5 py-0.5 rounded-md bg-gray-100 dark:bg-gray-800 text-pink-600 dark:text-pink-400 text-[0.875em] font-mono border border-gray-200/60 dark:border-gray-700/40" {...props}>
+    <code className="px-1.5 py-0.5 rounded-md bg-gray-100 dark:bg-gray-800 text-pink-600 dark:text-pink-400 text-[0.875em] font-mono border border-gray-200/60 dark:border-gray-700/40 break-all whitespace-pre-wrap" {...props}>
       {children}
     </code>
   );
@@ -70,7 +70,7 @@ function InlineCode({ children, className, ...props }: React.HTMLAttributes<HTML
 function RenderMarkdown({ content }: { content: string }) {
   return (
     <div className={cn(
-      'prose max-w-none dark:prose-invert',
+      'prose max-w-none dark:prose-invert break-words',
       'prose-headings:font-semibold prose-headings:tracking-tight',
       'prose-h1:text-xl prose-h1:mt-5 prose-h1:mb-3 prose-h1:pb-1.5 prose-h1:border-b prose-h1:border-gray-200 dark:prose-h1:border-gray-700',
       'prose-h2:text-lg prose-h2:mt-5 prose-h2:mb-2',
@@ -277,7 +277,7 @@ function MsgCopyButton({ text }: { text: string }) {
   return (
     <button
       onClick={handleCopy}
-      className="absolute -bottom-3 right-2 p-1 rounded-md bg-gray-100/90 dark:bg-gray-700/90 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 opacity-0 group-hover/msg:opacity-100 transition-opacity shadow-sm"
+      className="absolute -bottom-3 right-2 p-1 rounded-md bg-gray-100/90 dark:bg-gray-700/90 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 opacity-100 md:opacity-0 md:group-hover/msg:opacity-100 transition-opacity shadow-sm"
       title="Copy"
     >
       {copied ? <Check size={12} /> : <Copy size={12} />}
@@ -574,18 +574,18 @@ export default function ChatView() {
   const isEmbedded = window.self !== window.top;
 
   return (
-    <div className="flex flex-col h-[calc(100vh-8rem)] animate-fade-in">
+    <div className="flex flex-col flex-1 min-h-0 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between pb-3 border-b border-gray-200 dark:border-gray-800 shrink-0">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-row items-center justify-between gap-3 pb-3 border-b border-gray-200 dark:border-gray-800 shrink-0 min-w-0">
+        <div className="flex flex-wrap items-center gap-3 min-w-0">
           {!isEmbedded && (
-            <Link to="/chat" className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+            <Link to="/chat" className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors shrink-0">
               <ArrowLeft size={18} className="text-gray-400" />
             </Link>
           )}
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{projectName}</h2>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white break-all leading-tight">{projectName}</h2>
               <StatusBadge status={bridgeStatus} />
             </div>
             <button
@@ -593,10 +593,10 @@ export default function ChatView() {
               onClick={() => setDrawerOpen(true)}
               className="flex items-center gap-1 text-xs text-gray-500 hover:text-accent transition-colors mt-0.5"
             >
-              <span>{userPickedSession && currentSession
+              <span className="truncate max-w-[200px]">{userPickedSession && currentSession
                 ? (currentSession.name || currentSession.id.slice(0, 8))
                 : t('chat.defaultSession')}</span>
-              <ChevronDown size={12} />
+              <ChevronDown size={12} className="shrink-0" />
             </button>
           </div>
         </div>
@@ -604,11 +604,10 @@ export default function ChatView() {
         {isEmbedded && (
           <button
             onClick={() => window.open(window.location.href, '_blank')}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-700 shadow-sm"
-            title="在新标签页中打开"
+            className="p-1.5 rounded-lg text-gray-500 hover:text-gray-955 dark:text-gray-400 dark:hover:text-white bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-700 shadow-sm shrink-0"
+            title="在新窗口打开"
           >
-            <ExternalLink size={14} />
-            <span>在新窗口打开</span>
+            <ExternalLink size={15} />
           </button>
         )}
       </div>
@@ -652,7 +651,7 @@ export default function ChatView() {
                 ) : msg.format === 'file' && msg.fileName ? (
                   <FileBlock name={msg.fileName} size={msg.fileSize} />
                 ) : isUser ? (
-                  <div className="whitespace-pre-wrap">{msg.content}</div>
+                  <div className="whitespace-pre-wrap break-words">{msg.content}</div>
                 ) : (
                   <RenderMarkdown content={msg.content} />
                 )}

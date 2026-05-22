@@ -109,9 +109,9 @@ export default function ProjectList() {
   return (
     <div className="animate-fade-in space-y-4 ">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <h2 className="text-lg font-bold text-gray-900 dark:text-white">{t('projects.title')}</h2>
-        <Button size="sm" onClick={openWizard}>
+        <Button size="sm" onClick={openWizard} className="shrink-0 self-end sm:self-auto">
           <Plus size={14} /> {t('setup.addProject', 'Add project')}
         </Button>
       </div>

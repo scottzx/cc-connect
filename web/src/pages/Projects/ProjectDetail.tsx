@@ -229,44 +229,43 @@ export default function ProjectDetail() {
   return (
     <div className="space-y-6 animate-fade-in ">
       {/* Back + title */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-row items-center justify-between gap-3 min-w-0">
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
           {!isEmbedded && (
-            <Link to="/projects" className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+            <Link to="/projects" className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors shrink-0">
               <ArrowLeft size={18} className="text-gray-400" />
             </Link>
           )}
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white">{name}</h2>
-          {project && <Badge variant="info">{project.agent_type}</Badge>}
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white break-all leading-tight">{name}</h2>
+          {project && <Badge variant="info" className="shrink-0">{project.agent_type}</Badge>}
         </div>
 
         {isEmbedded && (
           <button
             onClick={() => window.open(window.location.href, '_blank')}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-700 shadow-sm"
-            title="在新标签页中打开"
+            className="p-1.5 rounded-lg text-gray-500 hover:text-gray-950 dark:text-gray-400 dark:hover:text-white bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-700 shadow-sm shrink-0"
+            title="在新窗口打开"
           >
-            <ExternalLink size={14} />
-            <span>在新窗口打开</span>
+            <ExternalLink size={15} />
           </button>
         )}
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2">
+      <div className="grid grid-cols-4 gap-1 bg-gray-100/60 dark:bg-gray-800/60 p-1 rounded-xl">
         {tabs.map(({ key, icon: Icon }) => (
           <button
             key={key}
             onClick={() => setTab(key)}
             className={cn(
-              'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all',
+              'flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 py-1.5 px-1 rounded-lg text-xs font-medium transition-all min-w-0',
               tab === key
-                ? 'bg-gray-900 dark:bg-gray-700 text-white shadow-md'
-                : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
+                : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
             )}
           >
-            <Icon size={16} />
-            {t(`projects.tabs.${key}`)}
+            <Icon size={13} className="shrink-0" />
+            <span className="truncate">{t(`projects.tabs.${key}`)}</span>
           </button>
         ))}
       </div>
@@ -316,9 +315,9 @@ export default function ProjectDetail() {
         return (
         <div className="space-y-4">
           {/* Header */}
-          <div className="flex justify-between items-center">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{t('providers.title')}</h3>
-            <Button size="sm" onClick={() => { setAddMode('pick'); setShowAddProvider(true); }}><Plus size={14} /> {t('providers.add')}</Button>
+            <Button size="sm" onClick={() => { setAddMode('pick'); setShowAddProvider(true); }} className="shrink-0 self-end sm:self-auto"><Plus size={14} /> {t('providers.add')}</Button>
           </div>
 
           {/* Unified provider list */}
@@ -336,27 +335,27 @@ export default function ProjectDetail() {
                 <div
                   key={p.name}
                   className={cn(
-                    'flex items-center justify-between px-4 py-3 rounded-xl border transition-all',
+                    'flex flex-col sm:flex-row sm:items-start justify-between gap-3 px-4 py-3 rounded-xl border transition-all',
                     p.active
                       ? 'border-emerald-200 dark:border-emerald-500/20 bg-emerald-50/50 dark:bg-emerald-900/10'
                       : 'border-gray-200 dark:border-gray-700/60 bg-white dark:bg-gray-800/40',
                   )}
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-gray-900 dark:text-white">{p.name}</span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-medium text-gray-900 dark:text-white break-all">{p.name}</span>
                       {p.active && <Badge variant="success">{t('providers.active')}</Badge>}
                       {isGlobal(p.name) && (
-                        <Link to="/providers" className="inline-flex items-center gap-0.5 text-[10px] text-gray-400 hover:text-accent transition-colors">
+                        <Link to="/providers" className="inline-flex items-center gap-0.5 text-[10px] text-gray-400 hover:text-accent transition-colors shrink-0">
                           <Link2 size={10} /> {t('providers.global', 'global')}
                         </Link>
                       )}
                     </div>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 break-all whitespace-normal">
                       {p.model}{p.base_url ? ` · ${p.base_url}` : ''}
                     </p>
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0 ml-3">
+                  <div className="flex items-center gap-1.5 shrink-0 sm:ml-3 self-end sm:self-center">
                     {!p.active && (
                       <Button size="sm" variant="ghost" onClick={() => { activateProvider(name!, p.name).then(fetchAll); }}>
                         <Zap size={14} /> {t('providers.activate')}
@@ -369,12 +368,12 @@ export default function ProjectDetail() {
                           variant="ghost"
                           className="text-gray-400 hover:text-red-500"
                           onClick={async () => {
-                            const next = providerRefs.filter(r => r !== p.name);
-                            setSavingRefs(true);
-                            try {
-                              await saveProviderRefs(name!, next);
-                              await fetchAll();
-                            } finally { setSavingRefs(false); }
+                             const next = providerRefs.filter(r => r !== p.name);
+                             setSavingRefs(true);
+                             try {
+                               await saveProviderRefs(name!, next);
+                               await fetchAll();
+                             } finally { setSavingRefs(false); }
                           }}
                         >
                           <Trash2 size={14} />
@@ -463,7 +462,7 @@ export default function ProjectDetail() {
             <EmptyState message={t('heartbeat.notEnabled', 'Heartbeat is not configured for this project. Add [heartbeat] section in config.toml to enable.')} />
           ) : (
             <>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 xs:grid-cols-2 md:grid-cols-4 gap-4">
                 <Card><p className="text-xs text-gray-500">{t('heartbeat.status')}</p><p className="text-lg font-bold text-gray-900 dark:text-white mt-1">{heartbeat.paused ? t('heartbeat.paused') : t('heartbeat.running')}</p></Card>
                 <Card><p className="text-xs text-gray-500">{t('heartbeat.interval')}</p><p className="text-lg font-bold text-gray-900 dark:text-white mt-1">{heartbeat.interval_mins}m</p></Card>
                 <Card><p className="text-xs text-gray-500">{t('heartbeat.runCount')}</p><p className="text-lg font-bold text-gray-900 dark:text-white mt-1">{heartbeat.run_count}</p></Card>
@@ -473,10 +472,10 @@ export default function ProjectDetail() {
                 <div className="space-y-2 text-sm">
                   <p className="text-gray-500">{t('heartbeat.lastRun')}: <span className="text-gray-900 dark:text-white">{formatTime(heartbeat.last_run)}</span></p>
                   <p className="text-gray-500">{t('heartbeat.skippedBusy')}: <span className="text-gray-900 dark:text-white">{heartbeat.skipped_busy}</span></p>
-                  {heartbeat.last_error && <p className="text-red-500">{heartbeat.last_error}</p>}
+                  {heartbeat.last_error && <p className="text-red-500 break-all">{heartbeat.last_error}</p>}
                 </div>
               </Card>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 {heartbeat.paused ? (
                   <Button onClick={() => { resumeHeartbeat(name!).then(fetchAll); }}><Play size={14} /> {t('heartbeat.resume')}</Button>
                 ) : (
@@ -612,12 +611,12 @@ export default function ProjectDetail() {
         </div>
         <Card>
           <h3 className="text-sm font-semibold text-red-600 dark:text-red-400 mb-3">{t('projects.dangerZone', 'Danger Zone')}</h3>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <p className="text-sm text-gray-700 dark:text-gray-300">{t('projects.deleteTitle')}</p>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t('projects.deleteHint', 'Remove this project from config. Requires restart.')}</p>
             </div>
-            <Button variant="danger" size="sm" onClick={() => setShowDeleteConfirm(true)}>
+            <Button variant="danger" size="sm" onClick={() => setShowDeleteConfirm(true)} className="shrink-0 self-end sm:self-auto">
               <Trash2 size={14} /> {t('common.delete')}
             </Button>
           </div>
