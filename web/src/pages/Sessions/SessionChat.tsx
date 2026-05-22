@@ -468,6 +468,14 @@ export default function SessionChat() {
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           {isEmbedded && (
+            <>
+            <button
+              onClick={fetchSession}
+              className="p-1.5 rounded-lg text-gray-500 hover:text-gray-955 dark:text-gray-400 dark:hover:text-white bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-700 shadow-sm shrink-0"
+              title="刷新"
+            >
+              <RotateCw size={15} />
+            </button>
             <button
               onClick={() => window.open(window.location.href, '_blank')}
               className="p-1.5 rounded-lg text-gray-500 hover:text-gray-955 dark:text-gray-400 dark:hover:text-white bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-700 shadow-sm shrink-0"
@@ -475,10 +483,8 @@ export default function SessionChat() {
             >
               <ExternalLink size={15} />
             </button>
+          </>
           )}
-          <Button size="sm" variant="ghost" onClick={fetchSession} className="px-2">
-            <RotateCw size={14} />
-          </Button>
         </div>
       </div>
 
