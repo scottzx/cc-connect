@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '@/store/auth';
 import Layout from '@/components/Layout/Layout';
 import Login from '@/pages/Login';
@@ -14,16 +14,32 @@ import SkillList from '@/pages/Skills/SkillList';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  console.log('[ProtectedRoute] isAuthenticated:', isAuthenticated);
+  if (!isAuthenticated) {
+    console.log('[ProtectedRoute] Not authenticated, redirecting to /login');
+    return <Navigate to="/login" replace />;
+  }
   return <>{children}</>;
 }
 
-export default function App() {
+function LoginRoute() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const [searchParams] = useSearchParams();
+  console.log('[LoginRoute] isAuthenticated:', isAuthenticated, 'searchParams:', Object.fromEntries(searchParams.entries()));
 
+  if (isAuthenticated) {
+    const redirect = searchParams.get('redirect') || '/';
+    console.log('[LoginRoute] Already authenticated, redirecting to:', redirect);
+    return <Navigate to={redirect} replace />;
+  }
+
+  return <Login />;
+}
+
+export default function App() {
   return (
     <Routes>
-      <Route path="/login" element={isAuthenticated ? <Navigate to="/" replace /> : <Login />} />
+      <Route path="/login" element={<LoginRoute />} />
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route index element={<Dashboard />} />
         <Route path="projects" element={<ProjectList />} />
@@ -38,3 +54,4 @@ export default function App() {
     </Routes>
   );
 }
+

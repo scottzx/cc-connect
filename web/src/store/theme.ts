@@ -30,9 +30,27 @@ export const useThemeStore = create<ThemeState>((set) => ({
     set({ theme, resolved });
   },
   init: () => {
-    const saved = (localStorage.getItem('cc_theme') as Theme) || 'dark';
+    const params = new URLSearchParams(window.location.search);
+    const queryTheme = params.get('theme') as Theme | null;
+    let saved = queryTheme || (localStorage.getItem('cc_theme') as Theme) || 'dark';
+    if (saved !== 'light' && saved !== 'dark' && saved !== 'system') {
+      saved = 'dark';
+    }
     const resolved = resolveTheme(saved);
     applyTheme(resolved);
     set({ theme: saved, resolved });
+
+    // Live theme updates via iframe postMessage
+    const handleMessage = (e: MessageEvent) => {
+      if (e.data && e.data.type === 'THEME_CHANGE') {
+        const newTheme = e.data.theme as Theme;
+        if (newTheme === 'light' || newTheme === 'dark' || newTheme === 'system') {
+          const resolvedVal = resolveTheme(newTheme);
+          applyTheme(resolvedVal);
+          set({ theme: newTheme, resolved: resolvedVal });
+        }
+      }
+    };
+    window.addEventListener('message', handleMessage);
   },
 }));

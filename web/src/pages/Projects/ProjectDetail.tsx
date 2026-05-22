@@ -224,15 +224,32 @@ export default function ProjectDetail() {
     return <div className="flex items-center justify-center h-64 text-gray-400 animate-pulse">Loading...</div>;
   }
 
+  const isEmbedded = window.self !== window.top;
+
   return (
     <div className="space-y-6 animate-fade-in ">
       {/* Back + title */}
-      <div className="flex items-center gap-3">
-        <Link to="/projects" className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
-          <ArrowLeft size={18} className="text-gray-400" />
-        </Link>
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white">{name}</h2>
-        {project && <Badge variant="info">{project.agent_type}</Badge>}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          {!isEmbedded && (
+            <Link to="/projects" className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+              <ArrowLeft size={18} className="text-gray-400" />
+            </Link>
+          )}
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white">{name}</h2>
+          {project && <Badge variant="info">{project.agent_type}</Badge>}
+        </div>
+
+        {isEmbedded && (
+          <button
+            onClick={() => window.open(window.location.href, '_blank')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-700 shadow-sm"
+            title="在新标签页中打开"
+          >
+            <ExternalLink size={14} />
+            <span>在新窗口打开</span>
+          </button>
+        )}
       </div>
 
       {/* Tabs */}

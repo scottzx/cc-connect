@@ -39,7 +39,8 @@ export default function Login() {
         api.setToken(qToken);
         await getStatus();
         loginStore(qToken);
-        navigate('/', { replace: true });
+        const redirect = searchParams.get('redirect') || '/';
+        navigate(redirect, { replace: true });
       } catch {
         setToken(qToken);
         setError(t('login.invalidToken'));
@@ -59,7 +60,8 @@ export default function Login() {
       api.setToken(token.trim());
       await getStatus();
       loginStore(token.trim(), serverUrl.trim());
-      navigate('/');
+      const redirect = searchParams.get('redirect') || '/';
+      navigate(redirect);
     } catch {
       setError(t('login.invalidToken'));
       api.setToken('');

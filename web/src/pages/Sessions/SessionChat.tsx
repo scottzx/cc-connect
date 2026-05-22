@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft, Send, User, Bot, RotateCw, Circle, WifiOff,
-  Copy, Check, FileText, Image as ImageIcon, Loader2,
+  Copy, Check, FileText, Image as ImageIcon, Loader2, ExternalLink,
 } from 'lucide-react';
 import { Badge, Button } from '@/components/ui';
 import { getSession, type SessionDetail } from '@/api/sessions';
@@ -442,14 +442,18 @@ export default function SessionChat() {
 
   const canSend = bridgeStatus === 'connected';
 
+  const isEmbedded = window.self !== window.top;
+
   return (
     <div className="flex flex-col flex-1 min-h-0 animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between pb-4 border-b border-gray-200 dark:border-gray-800">
         <div className="flex items-center gap-3">
-          <Link to="/sessions" className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
-            <ArrowLeft size={18} className="text-gray-400" />
-          </Link>
+          {!isEmbedded && (
+            <Link to="/sessions" className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+              <ArrowLeft size={18} className="text-gray-400" />
+            </Link>
+          )}
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{session?.name || id}</h2>
@@ -462,9 +466,21 @@ export default function SessionChat() {
             </div>
           </div>
         </div>
-        <Button size="sm" variant="ghost" onClick={fetchSession}>
-          <RotateCw size={14} /> {t('common.refresh')}
-        </Button>
+        <div className="flex items-center gap-2">
+          {isEmbedded && (
+            <button
+              onClick={() => window.open(window.location.href, '_blank')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-700 shadow-sm"
+              title="在新标签页中打开"
+            >
+              <ExternalLink size={14} />
+              <span>在新窗口打开</span>
+            </button>
+          )}
+          <Button size="sm" variant="ghost" onClick={fetchSession}>
+            <RotateCw size={14} /> {t('common.refresh')}
+          </Button>
+        </div>
       </div>
 
       {/* Messages */}
