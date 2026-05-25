@@ -15,9 +15,13 @@ api.setOnUnauthorized(() => {
   useAuthStore.getState().logout();
 });
 
+const getBasename = () => {
+  return window.location.pathname.startsWith('/cc-connect') ? '/cc-connect' : '/';
+};
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <BrowserRouter>
+    <BrowserRouter basename={getBasename()}>
       <App />
     </BrowserRouter>
   </React.StrictMode>,

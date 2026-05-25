@@ -33,6 +33,16 @@ export default function Login() {
     if (!qToken) return;
     autoLoginAttempted.current = true;
 
+    const qTheme = searchParams.get('theme');
+    if (qTheme === 'light' || qTheme === 'dark' || qTheme === 'system') {
+      setTheme(qTheme);
+    }
+    const qLang = searchParams.get('lang');
+    if (qLang) {
+      i18n.changeLanguage(qLang);
+      localStorage.setItem('cc_lang', qLang);
+    }
+
     (async () => {
       setLoading(true);
       try {
@@ -49,7 +59,7 @@ export default function Login() {
         setLoading(false);
       }
     })();
-  }, [searchParams, loginStore, navigate, t]);
+  }, [searchParams, loginStore, navigate, t, setTheme, i18n]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

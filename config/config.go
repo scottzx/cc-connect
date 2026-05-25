@@ -3095,8 +3095,18 @@ func AddPlatformToProject(projectName string, platform PlatformConfig, workDir, 
 	}
 	for i := range cfg.Projects {
 		if cfg.Projects[i].Name == projectName {
-			cfg.Projects[i].Platforms = append(cfg.Projects[i].Platforms, platform)
-			return saveConfig(cfg)
+			exists := false
+			for _, p := range cfg.Projects[i].Platforms {
+				if p.Type == platform.Type && (platform.Type == "bridge" || reflect.DeepEqual(p.Options, platform.Options)) {
+					exists = true
+					break
+				}
+			}
+			if !exists {
+				cfg.Projects[i].Platforms = append(cfg.Projects[i].Platforms, platform)
+				return saveConfig(cfg)
+			}
+			return nil
 		}
 	}
 	agentCfg := AgentConfig{Type: "codex", Options: map[string]any{}}
