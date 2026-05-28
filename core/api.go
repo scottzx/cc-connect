@@ -13,9 +13,9 @@ import (
 	"time"
 )
 
-// APIServer exposes a local Unix socket API for external tools (e.g. cron jobs)
+// CCConnectCliServer exposes a local Unix socket API for external tools (e.g. cron jobs)
 // to send messages to active sessions.
-type APIServer struct {
+type CCConnectCliServer struct {
 	socketPath string
 	listener   net.Listener
 	server     *http.Server
@@ -35,8 +35,8 @@ type SendRequest struct {
 	Files      []FileAttachment  `json:"files,omitempty"`
 }
 
-// NewAPIServer creates an API server on a Unix socket.
-func NewAPIServer(dataDir string) (*APIServer, error) {
+// NewCCConnectCliServer creates an API server on a Unix socket.
+func NewCCConnectCliServer(dataDir string) (*CCConnectCliServer, error) {
 	sockDir := filepath.Join(dataDir, "run")
 	if err := os.MkdirAll(sockDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create run dir: %w", err)
@@ -55,7 +55,7 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 		return nil, fmt.Errorf("chmod socket: %w", err)
 	}
 
-	s := &APIServer{
+	s := &CCConnectCliServer{
 		socketPath: sockPath,
 		listener:   listener,
 		mux:        http.NewServeMux(),
@@ -75,11 +75,11 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	return s, nil
 }
 
-func (s *APIServer) SocketPath() string {
+func (s *CCConnectCliServer) SocketPath() string {
 	return s.socketPath
 }
 
-func (s *APIServer) RegisterEngine(name string, e *Engine) {
+func (s *CCConnectCliServer) RegisterEngine(name string, e *Engine) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.engines[name] = e
@@ -88,19 +88,19 @@ func (s *APIServer) RegisterEngine(name string, e *Engine) {
 	}
 }
 
-func (s *APIServer) SetRelayManager(rm *RelayManager) {
+func (s *CCConnectCliServer) SetRelayManager(rm *RelayManager) {
 	s.relay = rm
 }
 
-func (s *APIServer) RelayManager() *RelayManager {
+func (s *CCConnectCliServer) RelayManager() *RelayManager {
 	return s.relay
 }
 
-func (s *APIServer) SetCronScheduler(cs *CronScheduler) {
+func (s *CCConnectCliServer) SetCronScheduler(cs *CronScheduler) {
 	s.cron = cs
 }
 
-func (s *APIServer) Start() {
+func (s *CCConnectCliServer) Start() {
 	s.server = &http.Server{Handler: s.mux}
 	go func() {
 		if err := s.server.Serve(s.listener); err != nil && err != http.ErrServerClosed {
@@ -110,7 +110,7 @@ func (s *APIServer) Start() {
 	slog.Info("api server started", "socket", s.socketPath)
 }
 
-func (s *APIServer) Stop() {
+func (s *CCConnectCliServer) Stop() {
 	if s.server != nil {
 		if err := s.server.Close(); err != nil && err != http.ErrServerClosed {
 			slog.Debug("api server close failed", "error", err)
@@ -129,7 +129,7 @@ func apiJSON(w http.ResponseWriter, status int, v any) {
 	}
 }
 
-func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
+func (s *CCConnectCliServer) handleSend(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
@@ -180,7 +180,7 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 	apiJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (s *APIServer) handleSessions(w http.ResponseWriter, r *http.Request) {
+func (s *CCConnectCliServer) handleSessions(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -225,7 +225,7 @@ type CronAddRequest struct {
 	TimeoutMins *int   `json:"timeout_mins,omitempty"`
 }
 
-func (s *APIServer) handleCronAdd(w http.ResponseWriter, r *http.Request) {
+func (s *CCConnectCliServer) handleCronAdd(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
@@ -313,7 +313,7 @@ func (s *APIServer) handleCronAdd(w http.ResponseWriter, r *http.Request) {
 	apiJSON(w, http.StatusOK, job)
 }
 
-func (s *APIServer) handleCronList(w http.ResponseWriter, r *http.Request) {
+func (s *CCConnectCliServer) handleCronList(w http.ResponseWriter, r *http.Request) {
 	if s.cron == nil {
 		http.Error(w, "cron scheduler not available", http.StatusServiceUnavailable)
 		return
@@ -330,7 +330,7 @@ func (s *APIServer) handleCronList(w http.ResponseWriter, r *http.Request) {
 	apiJSON(w, http.StatusOK, jobs)
 }
 
-func (s *APIServer) handleCronDel(w http.ResponseWriter, r *http.Request) {
+func (s *CCConnectCliServer) handleCronDel(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
@@ -359,7 +359,7 @@ func (s *APIServer) handleCronDel(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *APIServer) handleCronInfo(w http.ResponseWriter, r *http.Request) {
+func (s *CCConnectCliServer) handleCronInfo(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
 		return
@@ -384,7 +384,7 @@ func (s *APIServer) handleCronInfo(w http.ResponseWriter, r *http.Request) {
 	apiJSON(w, http.StatusOK, job)
 }
 
-func (s *APIServer) handleCronEdit(w http.ResponseWriter, r *http.Request) {
+func (s *CCConnectCliServer) handleCronEdit(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
@@ -428,7 +428,7 @@ func (s *APIServer) handleCronEdit(w http.ResponseWriter, r *http.Request) {
 
 // ── Relay API ──────────────────────────────────────────────────
 
-func (s *APIServer) handleRelaySend(w http.ResponseWriter, r *http.Request) {
+func (s *CCConnectCliServer) handleRelaySend(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
@@ -457,7 +457,7 @@ func (s *APIServer) handleRelaySend(w http.ResponseWriter, r *http.Request) {
 	apiJSON(w, http.StatusOK, resp)
 }
 
-func (s *APIServer) handleRelayBind(w http.ResponseWriter, r *http.Request) {
+func (s *CCConnectCliServer) handleRelayBind(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
@@ -485,7 +485,7 @@ func (s *APIServer) handleRelayBind(w http.ResponseWriter, r *http.Request) {
 	apiJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (s *APIServer) handleRelayBinding(w http.ResponseWriter, r *http.Request) {
+func (s *CCConnectCliServer) handleRelayBinding(w http.ResponseWriter, r *http.Request) {
 	if s.relay == nil {
 		http.Error(w, "relay not available", http.StatusServiceUnavailable)
 		return
