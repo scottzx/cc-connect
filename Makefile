@@ -6,10 +6,13 @@ DIST       := dist
 VERSION    := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT     := $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
 BUILD_TIME := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
+HOSTNAME   := $(shell hostname 2>/dev/null || uname -n 2>/dev/null || echo "unknown")
+OS         := $(shell uname -s | tr '[:upper:]' '[:lower:]' 2>/dev/null || echo "unknown")
+ARCH       := $(shell uname -m 2>/dev/null || echo "unknown")
 
 LDFLAGS := -s -w \
   -X main.version=$(VERSION) \
-  -X main.commit=$(COMMIT) \
+  -X main.commit=$(COMMIT)-$(OS)-$(ARCH)-$(HOSTNAME) \
   -X main.buildTime=$(BUILD_TIME)
 
 PLATFORMS := \
