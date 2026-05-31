@@ -112,6 +112,7 @@ type replyContext struct {
 }
 
 type Platform struct {
+	mu                         sync.RWMutex
 	platformName               string
 	domain                     string
 	appID                      string
@@ -158,6 +159,13 @@ type Platform struct {
 	// session key, enabling async card refreshes via the Patch API.
 	cardActionMsgMu  sync.Mutex
 	cardActionMsgIDs map[string]string // sessionKey → messageID
+	// activeThreadSessions tracks thread sessionKeys that have already been
+	// accepted by the bot. In group chats with thread_isolation, once a thread
+	// has been engaged (the first @bot message), subsequent attachment-only
+	// messages (image/file/audio) inside the same thread are passed through
+	// without requiring another @bot mention. Value is the last-seen time so
+	// stale entries can be expired by a future TTL sweep if needed.
+	activeThreadSessions sync.Map // sessionKey -> time.Time
 }
 
 type interactivePlatform struct {
@@ -205,6 +213,11 @@ func newPlatform(name, domain string, opts map[string]any) (core.Platform, error
 	allowChat, _ := opts["allow_chat"].(string)
 	groupOnly, _ := opts["group_only"].(bool)
 	groupReplyAll, _ := opts["group_reply_all"].(bool)
+	// require_mention = false is equivalent to group_reply_all = true:
+	// both mean "respond to all group messages without needing an @mention".
+	if v, ok := opts["require_mention"].(bool); ok && !v {
+		groupReplyAll = true
+	}
 	respondToAtEveryoneAndHere, _ := opts["respond_to_at_everyone_and_here"].(bool)
 	shareSessionInChannel, _ := opts["share_session_in_channel"].(bool)
 	threadIsolation, _ := opts["thread_isolation"].(bool)
@@ -305,12 +318,38 @@ func (p *Platform) dispatchPlatform() core.Platform {
 	return p
 }
 
+func (p *Platform) getHandler() core.MessageHandler {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.handler
+}
+
+func (p *Platform) getCancel() context.CancelFunc {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.cancel
+}
+
+func (p *Platform) getServer() *http.Server {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.server
+}
+
+func (p *Platform) getBotOpenID() string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.botOpenID
+}
+
 func (p *Platform) KeepPreviewOnFinish() bool {
 	return p.useInteractiveCard
 }
 
 func (p *Platform) Start(handler core.MessageHandler) error {
+	p.mu.Lock()
 	p.handler = handler
+	p.mu.Unlock()
 
 	// In webhook mode (private/self-hosted Feishu/Lark), startup must not depend
 	// on a successful bot-info API call. Older private deployments may not support
@@ -321,7 +360,9 @@ func (p *Platform) Start(handler core.MessageHandler) error {
 		if openID, err := p.fetchBotOpenID(); err != nil {
 			slog.Warn(p.platformName+": failed to get bot open_id, group chat filtering disabled", "error", err)
 		} else {
+			p.mu.Lock()
 			p.botOpenID = openID
+			p.mu.Unlock()
 			slog.Info(p.platformName+": bot identified", "open_id", openID)
 		}
 	}
@@ -426,7 +467,9 @@ func (p *Platform) startWebSocketMode() error {
 	p.wsClient = larkws.NewClient(p.appID, p.appSecret, wsOpts...)
 
 	ctx, cancel := context.WithCancel(context.Background())
+	p.mu.Lock()
 	p.cancel = cancel
+	p.mu.Unlock()
 
 	go func() {
 		if err := p.wsClient.Start(ctx); err != nil {
@@ -442,6 +485,7 @@ func (p *Platform) startWebhookMode() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc(p.callbackPath, p.webhookHandler)
 
+	p.mu.Lock()
 	p.server = &http.Server{
 		Addr:    ":" + p.port,
 		Handler: mux,
@@ -449,6 +493,7 @@ func (p *Platform) startWebhookMode() error {
 
 	_, cancel := context.WithCancel(context.Background())
 	p.cancel = cancel
+	p.mu.Unlock()
 
 	go func() {
 		slog.Info(p.tag()+": webhook server listening", "port", p.port, "path", p.callbackPath)
@@ -560,48 +605,48 @@ func (p *Platform) onCardAction(event *callback.CardActionTriggerEvent) (*callba
 				},
 			}, nil
 		}
-	if p.cardNavHandler != nil {
-		done := make(chan *core.Card, 1)
-		go func() {
-			done <- p.cardNavHandler(actionVal, sessionKey)
-		}()
+		if p.cardNavHandler != nil {
+			done := make(chan *core.Card, 1)
+			go func() {
+				done <- p.cardNavHandler(actionVal, sessionKey)
+			}()
 
-		select {
-		case card := <-done:
-			if card != nil {
+			select {
+			case card := <-done:
+				if card != nil {
+					return &callback.CardActionTriggerResponse{
+						Card: &callback.Card{
+							Type: "raw",
+							Data: renderCardMap(card, sessionKey),
+						},
+					}, nil
+				}
+			case <-time.After(cardNavTimeout):
+				go func() {
+					card := <-done
+					if card == nil {
+						return
+					}
+					if refresher, ok := p.self.(core.CardRefresher); ok {
+						if err := refresher.RefreshCard(context.Background(), sessionKey, card); err != nil {
+							slog.Warn(p.tag()+": async card refresh failed", "action", actionVal, "err", err)
+						}
+					}
+				}()
 				return &callback.CardActionTriggerResponse{
-					Card: &callback.Card{
-						Type: "raw",
-						Data: renderCardMap(card, sessionKey),
+					Toast: &callback.Toast{
+						Type:    "info",
+						Content: "⏳ Loading... / 加载中...",
 					},
 				}, nil
 			}
-		case <-time.After(cardNavTimeout):
-			go func() {
-				card := <-done
-				if card == nil {
-					return
-				}
-				if refresher, ok := p.self.(core.CardRefresher); ok {
-					if err := refresher.RefreshCard(context.Background(), sessionKey, card); err != nil {
-						slog.Warn(p.tag()+": async card refresh failed", "action", actionVal, "err", err)
-					}
-				}
-			}()
-			return &callback.CardActionTriggerResponse{
-				Toast: &callback.Toast{
-					Type:    "info",
-					Content: "⏳ Loading... / 加载中...",
-				},
-			}, nil
 		}
-	}
-	if strings.HasPrefix(actionVal, "act:") {
-		slog.Debug(p.tag()+": card action produced no card update", "action", actionVal)
+		if strings.HasPrefix(actionVal, "act:") {
+			slog.Debug(p.tag()+": card action produced no card update", "action", actionVal)
+			return nil, nil
+		}
+		slog.Warn(p.tag()+": card nav returned nil, ignoring", "action", actionVal)
 		return nil, nil
-	}
-	slog.Warn(p.tag()+": card nav returned nil, ignoring", "action", actionVal)
-	return nil, nil
 	}
 
 	// perm: — permission response with in-place card update
@@ -619,7 +664,8 @@ func (p *Platform) onCardAction(event *callback.CardActionTriggerEvent) (*callba
 		}
 
 		rctx := replyContext{messageID: messageID, chatID: chatID, sessionKey: sessionKey}
-		go p.handler(p.dispatchPlatform(), &core.Message{
+		h := p.getHandler()
+		go h(p.dispatchPlatform(), &core.Message{
 			SessionKey: sessionKey,
 			Platform:   p.platformName,
 			UserID:     userID,
@@ -650,7 +696,8 @@ func (p *Platform) onCardAction(event *callback.CardActionTriggerEvent) (*callba
 	// askq: — AskUserQuestion option selected, forward as user message
 	if strings.HasPrefix(actionVal, "askq:") {
 		rctx := replyContext{messageID: messageID, chatID: chatID, sessionKey: sessionKey}
-		go p.handler(p.dispatchPlatform(), &core.Message{
+		h := p.getHandler()
+		go h(p.dispatchPlatform(), &core.Message{
 			SessionKey: sessionKey,
 			Platform:   p.platformName,
 			UserID:     userID,
@@ -685,7 +732,8 @@ func (p *Platform) onCardAction(event *callback.CardActionTriggerEvent) (*callba
 
 		slog.Info(p.tag()+": card action dispatched as command", "cmd", cmdText, "user", userID)
 
-		go p.handler(p.dispatchPlatform(), &core.Message{
+		h := p.getHandler()
+		go h(p.dispatchPlatform(), &core.Message{
 			SessionKey: sessionKey,
 			Platform:   p.platformName,
 			UserID:     userID,
@@ -895,14 +943,15 @@ func isMessageWithdrawnError(err error) bool {
 }
 
 func (p *Platform) dispatchCoreMessage(msg *core.Message) {
-	if msg == nil || p.handler == nil {
+	h := p.getHandler()
+	if msg == nil || h == nil {
 		return
 	}
 	if p.isMessageRecalled(msg.MessageID) {
 		slog.Debug(p.tag()+": recalled message dispatch dropped", "message_id", msg.MessageID)
 		return
 	}
-	p.handler(p.dispatchPlatform(), msg)
+	h(p.dispatchPlatform(), msg)
 }
 
 func (p *Platform) onMessageRecalled(_ context.Context, event *larkim.P2MessageRecalledV1) error {
@@ -928,10 +977,11 @@ func (p *Platform) onMessageRecalled(_ context.Context, event *larkim.P2MessageR
 		"recall_type", stringValue(event.Event.RecallType),
 	)
 
-	if p.handler == nil {
+	h := p.getHandler()
+	if h == nil {
 		return nil
 	}
-	p.handler(p.dispatchPlatform(), &core.Message{
+	h(p.dispatchPlatform(), &core.Message{
 		Platform:  p.platformName,
 		MessageID: messageID,
 		Recalled:  true,
@@ -999,12 +1049,25 @@ func (p *Platform) onMessage(ctx context.Context, event *larkim.P2MessageReceive
 		"thread_isolation", p.threadIsolation,
 	)
 
-	if chatType == "group" && !p.groupReplyAll && p.botOpenID != "" {
-		if !isBotMentioned(msg.Mentions, p.botOpenID) {
+	// Pre-compute sessionKey so the @bot filter below can consult the active
+	// thread set; sessionKey is also used downstream for dispatch.
+	sessionKey := p.makeSessionKey(msg, chatID, userID)
+
+	if chatType == "group" && !p.groupReplyAll && p.getBotOpenID() != "" {
+		if !isBotMentioned(msg.Mentions, p.getBotOpenID()) {
+			switch {
 			// Feishu @all sends {"text":"@_all"} with 0 mentions.
-			if p.respondToAtEveryoneAndHere && msg.Content != nil && strings.Contains(*msg.Content, "@_all") {
+			case p.respondToAtEveryoneAndHere && msg.Content != nil && strings.Contains(*msg.Content, "@_all"):
 				slog.Debug(p.tag()+": responding to @all message", "chat_id", chatID)
-			} else {
+			// Once a thread has been engaged via @bot, allow follow-up
+			// attachment-only messages (image/file/audio) in the same thread
+			// through without re-mentioning the bot. Plain text and rich-text
+			// posts still require an explicit @bot to avoid pulling in
+			// unrelated chatter.
+			case p.threadIsolation && isAttachmentMsgType(msgType) && p.isActiveThreadSession(sessionKey):
+				slog.Debug(p.tag()+": passing attachment through active thread without mention",
+					"chat_id", chatID, "session_key", sessionKey, "msg_type", msgType, "message_id", messageID)
+			default:
 				slog.Debug(p.tag()+": ignoring group message without bot mention", "chat_id", chatID)
 				return nil
 			}
@@ -1038,13 +1101,16 @@ func (p *Platform) onMessage(ctx context.Context, event *larkim.P2MessageReceive
 	mentions := msg.Mentions
 	parentID := stringValue(msg.ParentId)
 
-	sessionKey := p.makeSessionKey(msg, chatID, userID)
 	rctx := replyContext{messageID: messageID, chatID: chatID, sessionKey: sessionKey}
 	slog.Debug(p.tag()+": routed inbound message",
 		"message_id", messageID,
 		"session_key", sessionKey,
 		"reply_in_thread", p.shouldReplyInThread(rctx),
 	)
+
+	// Mark this thread as bot-engaged so subsequent attachment-only messages
+	// in the same thread can pass through without re-mentioning the bot.
+	p.markThreadSessionActive(sessionKey)
 
 	// Dispatch message handling asynchronously so the SDK event loop is not
 	// blocked by IO-heavy operations (image/audio download, handler HTTP calls).
@@ -1090,8 +1156,8 @@ func (p *Platform) dispatchMessage(ctx context.Context, msgType, content string,
 			slog.Error(p.tag()+": failed to parse text content", "error", err)
 			return
 		}
-		text := stripMentions(textBody.Text, mentions, p.botOpenID)
-		if text == "" {
+		text := stripMentions(textBody.Text, mentions, p.getBotOpenID())
+		if text == "" && quoted.text == "" && len(quoted.images) == 0 {
 			slog.Debug(p.tag()+": dropping empty text after mention stripping",
 				"message_id", messageID,
 				"raw_text_len", len(textBody.Text),
@@ -1163,8 +1229,8 @@ func (p *Platform) dispatchMessage(ctx context.Context, msgType, content string,
 
 	case "post":
 		textParts, images := p.parsePostContent(messageID, content)
-		text := stripMentions(strings.Join(textParts, "\n"), mentions, p.botOpenID)
-		if text == "" && len(images) == 0 {
+		text := stripMentions(strings.Join(textParts, "\n"), mentions, p.getBotOpenID())
+		if text == "" && len(images) == 0 && quoted.text == "" && len(quoted.images) == 0 {
 			return
 		}
 		p.dispatchCoreMessage(&core.Message{
@@ -1719,6 +1785,7 @@ func extractPostPlainText(content string) string {
 		Content [][]struct {
 			Tag      string `json:"tag"`
 			Text     string `json:"text"`
+			Href     string `json:"href,omitempty"`
 			Language string `json:"language,omitempty"`
 			UserId   string `json:"user_id,omitempty"`
 			UserName string `json:"user_name,omitempty"`
@@ -1753,7 +1820,9 @@ func extractPostPlainText(content string) string {
 					line = append(line, elem.Text)
 				}
 			case "a":
-				if elem.Text != "" {
+				if elem.Text != "" && elem.Href != "" {
+					line = append(line, fmt.Sprintf("[%s](%s)", elem.Text, elem.Href))
+				} else if elem.Text != "" {
 					line = append(line, elem.Text)
 				}
 			case "markdown":
@@ -1874,27 +1943,60 @@ func extractInteractiveCardText(content string) string {
 
 // extractCardElements recursively extracts text from schema 2.0 card elements.
 // Handles: property.content, property.text (nested element), property.elements (recursive),
-// code_span, code_block (with tokenized contents), text_tag, hr, etc.
+// code_span, code_block (with tokenized contents), text_tag, hr, button (with open_url), etc.
 func extractCardElements(elements []json.RawMessage, parts *[]string) {
 	for _, raw := range elements {
 		var elem struct {
 			Tag      string `json:"tag"`
 			Content  string `json:"content"`
 			Property struct {
-				Content  string            `json:"content"`
-				Contents json.RawMessage   `json:"contents"`
-				Language string            `json:"language"`
-				Elements []json.RawMessage `json:"elements"`
-				Text     json.RawMessage   `json:"text"`
-				Items    json.RawMessage   `json:"items"`
-				Columns  json.RawMessage   `json:"columns"`
-				Rows     json.RawMessage   `json:"rows"`
+				Content   string            `json:"content"`
+				Contents  json.RawMessage   `json:"contents"`
+				Language  string            `json:"language"`
+				Elements  []json.RawMessage `json:"elements"`
+				Text      json.RawMessage   `json:"text"`
+				Items     json.RawMessage   `json:"items"`
+				Columns   json.RawMessage   `json:"columns"`
+				Rows      json.RawMessage   `json:"rows"`
+				Behaviors json.RawMessage   `json:"behaviors"`
 			} `json:"property"`
 		}
 		if json.Unmarshal(raw, &elem) != nil {
 			continue
 		}
 		switch elem.Tag {
+		case "button":
+			// Extract button label text and open_url from behaviors.
+			label := elem.Property.Content
+			if label == "" {
+				// label may be in property.text.property.content
+				var textElem struct {
+					Property struct{ Content string `json:"content"` } `json:"property"`
+				}
+				if json.Unmarshal(elem.Property.Text, &textElem) == nil {
+					label = textElem.Property.Content
+				}
+			}
+			var openURL string
+			if len(elem.Property.Behaviors) > 0 {
+				var behaviors []struct {
+					Type string `json:"type"`
+					URL  string `json:"url"`
+				}
+				if json.Unmarshal(elem.Property.Behaviors, &behaviors) == nil {
+					for _, b := range behaviors {
+						if b.Type == "open_url" && b.URL != "" {
+							openURL = b.URL
+							break
+						}
+					}
+				}
+			}
+			if label != "" && openURL != "" {
+				*parts = append(*parts, fmt.Sprintf("[%s](%s)", label, openURL))
+			} else if label != "" {
+				*parts = append(*parts, label)
+			}
 		case "code_block":
 			var lines []struct {
 				Contents []struct {
@@ -2772,6 +2874,38 @@ func isBotMentioned(mentions []*larkim.MentionEvent, botOpenID string) bool {
 	return false
 }
 
+// isAttachmentMsgType reports whether a Feishu message type carries only an
+// attachment payload (no free-form text the user could use to address another
+// human). These are the message types we are willing to admit into an
+// already-engaged thread without an explicit @bot mention.
+func isAttachmentMsgType(msgType string) bool {
+	switch msgType {
+	case "image", "file", "audio", "media":
+		return true
+	}
+	return false
+}
+
+// markThreadSessionActive records that a thread sessionKey has been engaged
+// by an @bot message, enabling attachment-only follow-ups inside the thread.
+// No-op when thread isolation is disabled or sessionKey is not a thread key.
+func (p *Platform) markThreadSessionActive(sessionKey string) {
+	if !p.threadIsolation || !isThreadSessionKey(sessionKey) {
+		return
+	}
+	p.activeThreadSessions.Store(sessionKey, time.Now())
+}
+
+// isActiveThreadSession reports whether the given sessionKey corresponds to a
+// thread that has previously been engaged by an @bot message.
+func (p *Platform) isActiveThreadSession(sessionKey string) bool {
+	if !p.threadIsolation || !isThreadSessionKey(sessionKey) {
+		return false
+	}
+	_, ok := p.activeThreadSessions.Load(sessionKey)
+	return ok
+}
+
 // stripMentions processes @mention placeholders (e.g. @_user_1) in text.
 // The bot's own mention is removed; other user mentions are replaced with
 // their display name so the agent can see who was referenced.
@@ -3644,17 +3778,17 @@ func (p *Platform) Stop() error {
 			slog.Warn(p.tag()+": primary shutting down, secondary platforms will lose event source",
 				"remaining", remaining)
 		}
-		if p.cancel != nil {
-			p.cancel()
+		if cancel := p.getCancel(); cancel != nil {
+			cancel()
 		}
 	} else {
 		unregisterSharedWS(p)
 	}
 	// Stop webhook server if running (Lark international version)
-	if p.server != nil {
+	if svr := p.getServer(); svr != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := p.server.Shutdown(ctx); err != nil {
+		if err := svr.Shutdown(ctx); err != nil {
 			slog.Error(p.tag()+": webhook server shutdown error", "error", err)
 		}
 	}
@@ -3796,7 +3930,9 @@ func (p *Platform) extractPostParts(messageID string, post *postLang) ([]string,
 					textParts = append(textParts, elem.Text)
 				}
 			case "a":
-				if elem.Text != "" {
+				if elem.Text != "" && elem.Href != "" {
+					textParts = append(textParts, fmt.Sprintf("[%s](%s)", elem.Text, elem.Href))
+				} else if elem.Text != "" {
 					textParts = append(textParts, elem.Text)
 				}
 			case "code_block":
@@ -3809,7 +3945,7 @@ func (p *Platform) extractPostParts(messageID string, post *postLang) ([]string,
 					textParts = append(textParts, elem.Text)
 				}
 			case "at":
-				if p.botOpenID != "" && elem.UserId == p.botOpenID {
+				if p.getBotOpenID() != "" && elem.UserId == p.getBotOpenID() {
 					continue
 				}
 				switch {
@@ -3873,7 +4009,7 @@ func (p *Platform) onBotMenu(event *larkapplication.P2BotMenuV6) error {
 	userName := p.resolveUserName(userID)
 	sessionKey := p.platformName + ":" + userID + ":" + userID
 
-	p.handler(p.dispatchPlatform(), &core.Message{
+	p.getHandler()(p.dispatchPlatform(), &core.Message{
 		SessionKey: sessionKey,
 		Platform:   p.platformName,
 		Content:    content,
