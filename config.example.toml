@@ -1106,6 +1106,8 @@ app_secret = "your-feishu-app-secret"
 #                           # 设为 true 时，cc-connect 会在支持 thread 的 Discord 频道内按 thread 隔离会话
 # progress_style = "legacy"  # Progress rendering: legacy | compact | card / 进度展示方式：legacy | compact | card
 #                            # card = one editable Discord embed progress card / card = 单条可编辑的 Discord 嵌入式进度卡
+# reply_hud = false  # If true, append final-reply HUD line (model/context/tokens) in Discord only
+#                    # 设为 true 时，仅在 Discord 最终回复末尾附加 HUD（模型/上下文/tokens）
 # respond_to_at_everyone_and_here = false  # If true, treat @everyone/@here as a direct mention so the bot responds
 #                              # 设为 true 时，将 @everyone/@here 视为直接 @ 机器人，使机器人响应
 # proxy = "http://127.0.0.1:7890"  # Optional HTTP/SOCKS5 proxy for Discord API & Gateway / 可选代理
@@ -1434,6 +1436,12 @@ app_secret = "your-feishu-app-secret"
 #                       # 允许的用户 openid，如 "OPEN_ID_1,OPEN_ID_2"；"*" 表示所有
 # share_session_in_channel = false  # If true, all users in a group share one agent session / 群聊共享会话
 # markdown_support = false  # Enable Markdown messages (msg_type: 2). Requires bot permission. / 启用 Markdown 消息（msg_type: 2）。需要机器人具备该权限。
+# intents = 100663296  # WebSocket identify intents. Default: (1<<25)|(1<<26) = 100663296
+#                       #   bit 25 (33554432): GROUP_AT_MESSAGE_CREATE — 群聊 @ 消息
+#                       #   bit 26 (67108864): INTERACTION_CREATE — 按键交互回调（inline keyboard 必需）
+#                       #   If you override this, include both bits for full functionality.
+#                       #   Override 时需包含 bit 25+26，否则群聊 @消息或按键交互可能失效。
+#                       #   QQ 开放平台需申请对应 Intent 权限。
 
 # =============================================================================
 # Project 5: Using Qoder CLI / 项目 5：使用 Qoder CLI (uncomment to enable / 取消注释以启用)
@@ -1765,6 +1773,37 @@ app_secret = "your-feishu-app-secret"
 # token = "your-telegram-bot-token"
 
 # =============================================================================
+# Project: Using GitHub Copilot / 项目：使用 GitHub Copilot (uncomment to enable / 取消注释以启用)
+# =============================================================================
+# Prerequisites / 前置条件:
+#   - Install GitHub Copilot CLI: https://docs.github.com/copilot/how-tos/copilot-cli
+#     Example: brew install github/copilot/copilot
+#   - copilot login (GitHub authentication)
+#
+# GitHub Copilot CLI uses --headless --stdio for JSON-RPC communication.
+# GitHub Copilot CLI 使用 --headless --stdio 进行 JSON-RPC 通信。
+# The generic ACP configuration above is also supported; this first-class agent
+# adds cc-connect model/mode switching plus session list/delete integration.
+
+# [[projects]]
+# name = "my-copilot-project"
+#
+# [projects.agent]
+# type = "copilot"
+#
+# [projects.agent.options]
+# work_dir = "/path/to/code"
+# model = "gpt-4.1"           # or claude-sonnet-4.6, o3-mini, etc.
+# mode = "default"            # "default" or "bypassPermissions" (yolo)
+# cli_path = "copilot"        # CLI binary name or path (default: "copilot")
+#
+# [[projects.platforms]]
+# type = "telegram"
+#
+# [projects.platforms.options]
+# token = "your-telegram-bot-token"
+
+# =============================================================================
 # Project 8: Another example / 项目 8：更多示例 (uncomment to enable / 取消注释以启用)
 # =============================================================================
 
@@ -1784,3 +1823,37 @@ app_secret = "your-feishu-app-secret"
 #
 # [projects.platforms.options]
 # token = "your-discord-bot-token"
+
+# =============================================================================
+# Project 9: Using Antigravity CLI / 项目 9：使用 Antigravity CLI (uncomment to enable / 取消注释以启用)
+# =============================================================================
+# Requires: agy installed locally (refer to https://antigravity.google/docs/cli-overview)
+# 需要安装：本地已安装 agy 命令 (参考 https://antigravity.google/docs/cli-overview)
+# Antigravity CLI uses `agy -p` under the hood.
+# Antigravity CLI 底层使用 `agy -p` 命令。
+#
+# [[projects]]
+# name = "my-antigravity-project"
+#
+# [projects.agent]
+# type = "antigravity"
+#
+# [projects.agent.options]
+# work_dir = "/path/to/project"
+# mode = "default"  # "default" | "yolo" | "plan"
+# cmd = "agy"      # CLI binary name (default: "agy") / CLI 二进制名称（默认 "agy"）
+# timeout_mins = 30  # Timeout per conversation turn (minutes) / 每次对话超时时间（分钟）
+#
+# Mode options / 模式说明:
+# - "default":   Prompt for approval on each tool use / 每次工具调用都需要确认
+# - "yolo":      Auto-approve all tool calls (--dangerously-skip-permissions) / 自动批准所有工具调用
+# - "plan":      Read-only plan mode with terminal sandbox constraints (--sandbox) / 只读沙箱规划模式
+#
+# Optional: specify a model / 可选：指定模型
+# model = "gemini-3.1-pro-preview"
+#
+# # Provider with API key / 使用 API Key 的 Provider
+# [[projects.agent.providers]]
+# name = "google"
+# api_key = "your-gemini-api-key"    # GEMINI_API_KEY
+

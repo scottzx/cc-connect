@@ -47,9 +47,9 @@
 <details open>
 <summary>赞助商</summary>
 
-[![MiniMax](assets/banners/minimax-zh.jpeg)](https://platform.minimaxi.com/subscribe/token-plan?code=HAvthxk1tT&source=link)
+[![MiniMax](assets/banners/minimax-zh.png)](https://platform.minimaxi.com/subscribe/token-plan?code=HAvthxk1tT&source=link)
 
-MiniMax M2.7 是 MiniMax 首个深度参与自我迭代的模型，可自主构建复杂 Agent Harness，并基于 Agent Teams、复杂 Skills、Tool Search Tool 等能力完成高复杂度生产力任务；其在软件工程、端到端项目交付及办公场景中表现优异，多项评测接近行业领先水平，同时具备稳定的复杂任务执行、环境交互能力以及良好的情商与身份保持能力。
+MiniMax M3 突破 Coding 与 Agentic AI 前沿，基于 MiniMax Sparse Attention 支持 1M 超长上下文，并从零原生支持多模态。在 SWE-Bench Pro (59.0)、Terminal Bench 2.1 (66.0)、VIBE V2 (60.1)、SVG-Bench (63.7)、KernelBench Hard (28.8)、BrowseComp (83.5)、GDPval rubrics (74.7)、Banker ToolBench (76.1)、MCP Atlas (74.2)、OSWorld-verified (70.0) 等多项基准中领先业界。Mini 价格 Max 性能，Token Plan 助你 Build / Learn / Ship。
 
 [点击此处](https://platform.minimaxi.com/subscribe/token-plan?code=HAvthxk1tT&source=link)享 MiniMax Token Plan 专属 88 折优惠 + cc-connect 用户专属代金券！
 
@@ -219,7 +219,7 @@ MiniMax M2.7 是 MiniMax 首个深度参与自我迭代的模型，可自主构�
 ## ✨ 为什么选择 cc-connect？
 
 ### 🤖 通用 Agent 支持
-**10+ 大 AI Agent** — Claude Code、Codex、Cursor Agent、Kimi CLI、Qoder CLI、Gemini CLI、OpenCode、iFlow CLI、Pi、Devin，还可通过 [Agent Client Protocol (ACP)](https://agentclientprotocol.com/get-started/agents) 接入更多 Agent。按需选用，或同时使用全部。
+**10+ 大 AI Agent** — Claude Code、Codex、Cursor Agent、Kimi CLI、Qoder CLI、Gemini CLI、OpenCode、iFlow CLI、Pi、Devin、Copilot，还可通过 [Agent Client Protocol (ACP)](https://agentclientprotocol.com/get-started/agents) 接入更多 Agent。按需选用，或同时使用全部。
 
 ### 📱 平台灵活性
 **12 大聊天平台** — 飞书、WPS 协作、钉钉、Slack、Telegram、Discord、企业微信、微博、LINE、QQ、QQ 官方机器人，以及 **微信个人号（ilink）**。大部分平台**无需公网 IP**。
@@ -353,6 +353,7 @@ cc-connect update --pre     # 含预发布版本
 | Agent | iFlow CLI | ✅ 已支持 |
 | Agent | Kimi CLI (Moonshot) | ✅ 已支持 |
 | Agent | Pi (Cursor Background Agent) | ✅ 已支持 |
+| Agent | Copilot (GitHub) | ✅ 已支持 |
 | Agent | ACP (Agent Client Protocol) | ✅ 支持任何 [ACP 兼容 Agent](https://agentclientprotocol.com/get-started/agents) |
 | Agent | Devin (Cognition) | ✅ 已支持（通过 ACP）|
 | Agent | Goose (Block) | 🔜 计划中 |
