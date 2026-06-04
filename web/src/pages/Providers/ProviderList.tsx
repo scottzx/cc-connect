@@ -2,21 +2,86 @@ import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Plug, Plus, Trash2, Pencil, ExternalLink, Star, Sparkles, X, Eye, EyeOff, Check,
-  Download,
+  Download, Cpu,
 } from 'lucide-react';
 import { Card, Button, Badge, Modal, Input } from '@/components/ui';
 import {
   listGlobalProviders, addGlobalProvider, updateGlobalProvider, removeGlobalProvider,
   fetchProviderPresets, listCCSwitchProviders, importCCSwitchProviders,
+  getCCSwitchSettings, saveCCSwitchSettings, switchCCSwitchProvider,
   type GlobalProvider, type ProviderPreset, type ProviderModel, type CCSwitchProvider,
 } from '@/api/providers';
 import { cn } from '@/lib/utils';
 
-type Tab = 'providers' | 'presets';
+interface AgentDisplayInfo {
+  type: string;
+  name: string;
+  desc: string;
+}
+
+const AGENTS_LIST: AgentDisplayInfo[] = [
+  { type: 'claude', name: 'Claude Code', desc: 'Anthropic\'s official terminal agent' },
+  { type: 'codex', name: 'ChatGPT Codex', desc: 'OpenAI\'s ChatGPT terminal agent' },
+  { type: 'gemini', name: 'Gemini CLI', desc: 'Google Gemini official terminal agent' },
+  { type: 'openclaw', name: 'OpenClaw', desc: 'Open-source agent terminal runner' },
+  { type: 'opencode', name: 'OpenCode / Trae', desc: 'OpenCode terminal development agent' },
+  { type: 'hermes', name: 'Hermes', desc: 'Hermes terminal development agent' },
+];
+
+function extractModelFromConfig(appType: string, val?: string): string {
+  if (!val) return '';
+  try {
+    if (appType === 'codex') {
+      const match = val.match(/^model\s*=\s*"(.*?)"/m) || val.match(/^model\s*=\s*'(.*?)'/m);
+      return match ? match[1] : '';
+    }
+    const obj = JSON.parse(val);
+    if (appType === 'openclaw') {
+      return obj.agents?.defaults?.model?.primary || obj.model || '';
+    }
+    return obj.model || '';
+  } catch {
+    return '';
+  }
+}
+
+function updateModelInConfig(appType: string, val: string | undefined, newModel: string): string {
+  const currentVal = val || (appType === 'codex' ? '' : '{}');
+  try {
+    if (appType === 'codex') {
+      const pattern = /^model\s*=\s*"(.*?)"/m;
+      if (pattern.test(currentVal)) {
+        return currentVal.replace(pattern, `model = "${newModel}"`);
+      }
+      const patternSingle = /^model\s*=\s*'(.*?)'/m;
+      if (patternSingle.test(currentVal)) {
+        return currentVal.replace(patternSingle, `model = '${newModel}'`);
+      }
+      return `model = "${newModel}"\n` + currentVal;
+    }
+    const obj = JSON.parse(currentVal);
+    if (appType === 'openclaw') {
+      if (!obj.agents) obj.agents = {};
+      if (!obj.agents.defaults) obj.agents.defaults = {};
+      if (!obj.agents.defaults.model) obj.agents.defaults.model = {};
+      obj.agents.defaults.model.primary = newModel;
+    } else {
+      obj.model = newModel;
+    }
+    return JSON.stringify(obj, null, 2);
+  } catch {
+    if (appType === 'codex') {
+      return `model = "${newModel}"\n` + currentVal;
+    }
+    return JSON.stringify({ model: newModel }, null, 2);
+  }
+}
+
+type Tab = 'agents' | 'providers' | 'presets';
 
 export default function ProviderList() {
   const { t, i18n } = useTranslation();
-  const [tab, setTab] = useState<Tab>('providers');
+  const [tab, setTab] = useState<Tab>('agents');
   const [providers, setProviders] = useState<GlobalProvider[]>([]);
   const [presets, setPresets] = useState<ProviderPreset[]>([]);
   const [loading, setLoading] = useState(true);
@@ -25,6 +90,23 @@ export default function ProviderList() {
   const [editProvider, setEditProvider] = useState<GlobalProvider | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [showCCSwitchModal, setShowCCSwitchModal] = useState(false);
+
+  const [ccProviders, setCcProviders] = useState<CCSwitchProvider[]>([]);
+  const [ccSettings, setCcSettings] = useState<Record<string, string>>({});
+  const [ccLoading, setCcLoading] = useState(false);
+
+  const loadCcSwitchData = useCallback(async () => {
+    setCcLoading(true);
+    try {
+      const provRes = await listCCSwitchProviders();
+      setCcProviders(provRes.providers || []);
+      const setRes = await getCCSwitchSettings();
+      setCcSettings(setRes.settings || {});
+    } catch (e) {
+      console.error(e);
+    }
+    setCcLoading(false);
+  }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -44,10 +126,15 @@ export default function ProviderList() {
     setPresetsLoading(false);
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => {
+    refresh();
+    loadCcSwitchData();
+  }, [refresh, loadCcSwitchData]);
+
   useEffect(() => {
     if (tab === 'presets' && presets.length === 0) loadPresets();
-  }, [tab, presets.length, loadPresets]);
+    if (tab === 'agents') loadCcSwitchData();
+  }, [tab, presets.length, loadPresets, loadCcSwitchData]);
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
@@ -56,6 +143,27 @@ export default function ProviderList() {
       await refresh();
     } catch { /* empty */ }
     setDeleteTarget(null);
+  };
+
+  const handleSwitchProvider = async (appType: string, providerId: string) => {
+    try {
+      await switchCCSwitchProvider(appType, providerId);
+      await loadCcSwitchData();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleSaveDefaultModel = async (appType: string, newModel: string) => {
+    try {
+      const key = `common_config_${appType}`;
+      const currentVal = ccSettings[key];
+      const updatedVal = updateModelInConfig(appType, currentVal, newModel);
+      await saveCCSwitchSettings({ [key]: updatedVal });
+      await loadCcSwitchData();
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const handleAddFromPreset = (preset: ProviderPreset) => {
@@ -119,7 +227,7 @@ export default function ProviderList() {
 
       {/* Tabs */}
       <div className="flex gap-1 p-1 rounded-xl bg-gray-100 dark:bg-white/[0.06] w-fit">
-        {(['providers', 'presets'] as const).map(key => (
+        {(['agents', 'providers', 'presets'] as const).map(key => (
           <button
             key={key}
             onClick={() => setTab(key)}
@@ -136,6 +244,17 @@ export default function ProviderList() {
       </div>
 
       {/* Content */}
+      {tab === 'agents' && (
+        <AgentGrid
+          ccProviders={ccProviders}
+          ccSettings={ccSettings}
+          loading={ccLoading}
+          onSwitch={handleSwitchProvider}
+          onSaveModel={handleSaveDefaultModel}
+          t={t}
+          lang={i18n.language || 'en'}
+        />
+      )}
       {tab === 'providers' && (
         <ProviderGrid
           providers={providers}
@@ -983,5 +1102,270 @@ function CCSwitchImportModal({
         )}
       </div>
     </Modal>
+  );
+}
+
+/* ── My Agents Grid ── */
+
+interface AgentGridProps {
+  ccProviders: CCSwitchProvider[];
+  ccSettings: Record<string, string>;
+  loading: boolean;
+  onSwitch: (appType: string, providerId: string) => Promise<void>;
+  onSaveModel: (appType: string, newModel: string) => Promise<void>;
+  t: (k: string) => string;
+  lang: string;
+}
+
+function AgentGrid({
+  ccProviders,
+  ccSettings,
+  loading,
+  onSwitch,
+  onSaveModel,
+  t,
+  lang,
+}: AgentGridProps) {
+  if (loading) return <p className="text-sm text-gray-400">{t('common.loading')}</p>;
+
+  return (
+    <div className="grid gap-6 md:grid-cols-2">
+      {AGENTS_LIST.map(agent => {
+        const appProviders = ccProviders.filter(p => p.app_type === agent.type);
+        const currentProvider = appProviders.find(p => p.is_current);
+        const configVal = ccSettings[`common_config_${agent.type}`];
+        const defaultGlobalModel = extractModelFromConfig(agent.type, configVal);
+
+        return (
+          <AgentCard
+            key={agent.type}
+            agent={agent}
+            providers={appProviders}
+            currentProvider={currentProvider}
+            configVal={configVal}
+            defaultGlobalModel={defaultGlobalModel}
+            onSwitch={onSwitch}
+            onSaveModel={onSaveModel}
+            t={t}
+            lang={lang}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+interface AgentCardProps {
+  agent: AgentDisplayInfo;
+  providers: CCSwitchProvider[];
+  currentProvider?: CCSwitchProvider;
+  configVal?: string;
+  defaultGlobalModel: string;
+  onSwitch: (appType: string, providerId: string) => Promise<void>;
+  onSaveModel: (appType: string, newModel: string) => Promise<void>;
+  t: (k: string) => string;
+  lang: string;
+}
+
+function AgentCard({
+  agent,
+  providers,
+  currentProvider,
+  configVal,
+  defaultGlobalModel,
+  onSwitch,
+  onSaveModel,
+  t,
+  lang,
+}: AgentCardProps) {
+  const [selectedProviderName, setSelectedProviderName] = useState(currentProvider?.name || '');
+  const [modelInput, setModelInput] = useState(defaultGlobalModel);
+  const [rawInput, setRawInput] = useState(configVal || '');
+  const [saving, setSaving] = useState(false);
+  const [showRaw, setShowRaw] = useState(false);
+  const isChinese = lang.startsWith('zh');
+
+  useEffect(() => {
+    setSelectedProviderName(currentProvider?.name || '');
+  }, [currentProvider]);
+
+  useEffect(() => {
+    setModelInput(defaultGlobalModel);
+  }, [defaultGlobalModel]);
+
+  useEffect(() => {
+    setRawInput(configVal || '');
+  }, [configVal]);
+
+  const handleProviderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newName = e.target.value;
+    setSelectedProviderName(newName);
+
+    // Auto display corresponding model (Requirement 2)
+    const chosen = providers.find(p => p.name === newName);
+    if (chosen) {
+      const newModel = chosen.model || '';
+      setModelInput(newModel);
+
+      // Sync updated model to raw snippet config input
+      const updatedRaw = updateModelInConfig(agent.type, rawInput, newModel);
+      setRawInput(updatedRaw);
+    }
+  };
+
+  const handleModelChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newModel = e.target.value;
+    setModelInput(newModel);
+
+    // Sync updated model to raw snippet config input
+    const updatedRaw = updateModelInConfig(agent.type, rawInput, newModel);
+    setRawInput(updatedRaw);
+  };
+
+  const handleRawChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const newRaw = e.target.value;
+    setRawInput(newRaw);
+
+    // Parse model out of raw payload to update modelInput
+    const model = extractModelFromConfig(agent.type, newRaw);
+    setModelInput(model);
+  };
+
+  const hasChanges = selectedProviderName !== (currentProvider?.name || '') ||
+                     modelInput !== defaultGlobalModel ||
+                     rawInput !== (configVal || '');
+
+  const handleSaveAll = async () => {
+    setSaving(true);
+    try {
+      const configChanged = modelInput !== defaultGlobalModel || rawInput !== (configVal || '');
+      if (configChanged) {
+        const key = `common_config_${agent.type}`;
+        await saveCCSwitchSettings({ [key]: rawInput });
+      }
+
+      const providerChanged = selectedProviderName !== (currentProvider?.name || '');
+      if (providerChanged) {
+        await onSwitch(agent.type, selectedProviderName);
+      } else if (configChanged) {
+        // If only config changed, trigger reload via provider switch
+        if (currentProvider?.name) {
+          await onSwitch(agent.type, currentProvider.name);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    setSaving(false);
+  };
+
+  const handleReset = () => {
+    setSelectedProviderName(currentProvider?.name || '');
+    setModelInput(defaultGlobalModel);
+    setRawInput(configVal || '');
+  };
+
+  return (
+    <Card className="flex flex-col justify-between h-full space-y-4">
+      <div>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Cpu size={18} className="text-accent shrink-0" />
+            <h3 className="font-semibold text-gray-900 dark:text-white text-base">{agent.name}</h3>
+          </div>
+          <Badge variant="info">{agent.type}</Badge>
+        </div>
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{agent.desc}</p>
+      </div>
+
+      <div className="space-y-4 pt-3 border-t border-gray-100 dark:border-white/[0.06]">
+        {/* Active Provider Selector */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">
+            {isChinese ? '当前激活服务商' : 'Active Provider'}
+          </label>
+          <select
+            value={selectedProviderName}
+            onChange={handleProviderChange}
+            className={cn(
+              'w-full rounded-xl border px-3 py-1.5 text-xs outline-none transition-colors',
+              'border-gray-200 bg-white text-gray-900',
+              'dark:border-white/10 dark:bg-white/[0.04] dark:text-white',
+              'focus:border-accent focus:ring-1 focus:ring-accent/30',
+            )}
+          >
+            <option value="" disabled={!!selectedProviderName}>-- Select Provider --</option>
+            {providers.map(p => (
+              <option key={p.name} value={p.name}>
+                {p.name} {p.model ? `(${p.model})` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Global Default Model */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">
+            {isChinese ? '默认的全局配置模型' : 'Default Global Model'}
+          </label>
+          <Input
+            value={modelInput}
+            onChange={handleModelChange}
+            placeholder="e.g. claude-3-5-sonnet"
+            className="w-full py-1 px-3 text-xs h-8"
+          />
+        </div>
+
+        {/* Advanced Config Textarea */}
+        <div className="pt-1">
+          <button
+            type="button"
+            onClick={() => setShowRaw(!showRaw)}
+            className="text-[11px] text-accent hover:underline flex items-center gap-1 font-medium"
+          >
+            {showRaw
+              ? (isChinese ? '隐藏高级配置' : 'Hide Advanced Config')
+              : (isChinese ? '显示高级配置 (JSON/TOML)' : 'Show Advanced Config (JSON/TOML)')}
+          </button>
+          {showRaw && (
+            <div className="mt-2 space-y-2 animate-in fade-in slide-in-from-top-1 duration-150">
+              <textarea
+                value={rawInput}
+                onChange={handleRawChange}
+                className={cn(
+                  'w-full min-h-[120px] rounded-xl border p-2 text-xs font-mono outline-none transition-colors resize-y',
+                  'border-gray-200 bg-white text-gray-900',
+                  'dark:border-white/10 dark:bg-white/[0.04] dark:text-white',
+                )}
+                placeholder={agent.type === 'codex' ? 'model_reasoning_effort = "high"\n...' : '{\n  "model": "..."\n}'}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Unified Save & Reset Confirmation Section */}
+        {hasChanges && (
+          <div className="flex gap-2 pt-3 justify-end border-t border-gray-100 dark:border-white/[0.06] animate-in fade-in slide-in-from-bottom-2 duration-200">
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={handleReset}
+              disabled={saving}
+              className="h-8 px-3 text-xs"
+            >
+              {isChinese ? '重置' : 'Reset'}
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleSaveAll}
+              disabled={saving}
+              className="h-8 px-3 text-xs"
+            >
+              {saving ? (isChinese ? '保存中...' : 'Saving...') : (isChinese ? '确认保存' : 'Save Changes')}
+            </Button>
+          </div>
+        )}
+      </div>
+    </Card>
   );
 }

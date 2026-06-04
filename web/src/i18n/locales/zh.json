@@ -348,6 +348,7 @@
     "addPreset": "添加",
     "added": "已添加",
     "tab": {
+      "agents": "我的智能体",
       "providers": "我的服务商",
       "presets": "推荐预设"
     },
