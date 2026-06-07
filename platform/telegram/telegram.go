@@ -225,7 +225,43 @@ func defaultNewBot(token string, onUpdate func(context.Context, *models.Update),
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("getMe: %w", err)
 	}
+
+	// Drain pending updates before starting polling to avoid 409 Conflict.
+	// This clears any outstanding long-poll request from a previous instance.
+	drainPendingUpdates(token, httpClient)
+
 	return b, me, b.Start, nil
+}
+
+// drainPendingUpdates clears any pending updates on Telegram's side by calling
+// getUpdates with offset=-1. This terminates any outstanding long-poll request
+// from a previous bot instance, preventing 409 Conflict errors on restart.
+func drainPendingUpdates(token string, httpClient *http.Client) {
+	apiURL := "https://api.telegram.org/bot" + token + "/getUpdates?offset=-1&timeout=0"
+	client := httpClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	if err != nil {
+		slog.Debug("telegram: drain updates request creation failed", "error", err)
+		return
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		slog.Debug("telegram: drain updates request failed", "error", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Read and discard response body to ensure connection is properly closed
+	_, _ = io.Copy(io.Discard, resp.Body)
+
+	slog.Debug("telegram: drained pending updates", "status", resp.StatusCode)
 }
 
 func (p *Platform) connectLoop(ctx context.Context) {
@@ -508,6 +544,12 @@ func (p *Platform) dispatchMessage(msg *core.Message, tgMsg *models.Message) {
 	}
 	if locText := enrichLocation(msg); locText != "" {
 		extras = append(extras, locText)
+	}
+	// Inline text_link entities: rewrite "label" → "[label](url)" so the agent
+	// receives the URL. Telegram drops the href when forwarding plain text (#1207).
+	msg.Content = enrichTextLinks(msg.Content, tgMsg.Entities)
+	if tgMsg.Caption != "" {
+		msg.Content = enrichTextLinks(msg.Content, tgMsg.CaptionEntities)
 	}
 	if len(extras) > 0 {
 		msg.ExtraContent = strings.Join(extras, "\n")
@@ -1542,6 +1584,56 @@ func extractEntityText(text string, offsetUTF16, lengthUTF16 int) string {
 		return ""
 	}
 	return string(utf16.Decode(encoded[offsetUTF16:endUTF16]))
+}
+
+// enrichTextLinks rewrites text_link entities in-place: each entity that carries
+// a URL (type "text_link") is rewritten from "label" to "[label](url)" so the
+// agent receives the full hyperlink. Plain "url" entities (bare URLs in the
+// text) are left unchanged — they are already visible. (#1207)
+func enrichTextLinks(text string, entities []models.MessageEntity) string {
+	if len(entities) == 0 || text == "" {
+		return text
+	}
+	// Work in UTF-16 code units (Telegram's coordinate system).
+	runes := []rune(text)
+	utf16Encoded := utf16.Encode(runes)
+
+	// Collect text_link replacements sorted by descending offset so we can
+	// safely apply them right-to-left without shifting earlier offsets.
+	type replacement struct {
+		start, end int // UTF-16 code unit offsets
+		url        string
+	}
+	var repls []replacement
+	for _, e := range entities {
+		if e.Type != models.MessageEntityTypeTextLink || e.URL == "" {
+			continue
+		}
+		end := e.Offset + e.Length
+		if e.Offset < 0 || e.Length <= 0 || end > len(utf16Encoded) {
+			continue
+		}
+		repls = append(repls, replacement{e.Offset, end, e.URL})
+	}
+	if len(repls) == 0 {
+		return text
+	}
+	// Sort descending by start offset for right-to-left substitution.
+	for i := 0; i < len(repls)-1; i++ {
+		for j := i + 1; j < len(repls); j++ {
+			if repls[j].start > repls[i].start {
+				repls[i], repls[j] = repls[j], repls[i]
+			}
+		}
+	}
+	// Apply substitutions on the UTF-16 slice and rebuild.
+	for _, r := range repls {
+		label := string(utf16.Decode(utf16Encoded[r.start:r.end]))
+		markdown := fmt.Sprintf("[%s](%s)", label, r.url)
+		replacement16 := utf16.Encode([]rune(markdown))
+		utf16Encoded = append(utf16Encoded[:r.start], append(replacement16, utf16Encoded[r.end:]...)...)
+	}
+	return string(utf16.Decode(utf16Encoded))
 }
 
 // sanitizeTelegramCommand converts a command name to Telegram-compatible format.
