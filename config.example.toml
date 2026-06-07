@@ -189,7 +189,6 @@ level = "info" # debug, info, warn, error
 # # profile. Secrets belong in the target user's ~/.claude/settings.json
 # # env block, NOT here.
 # run_as_env = ["PGSSLROOTCERT", "PGSSLMODE"]
-
 # =============================================================================
 # Streaming Preview / 流式预览
 # =============================================================================
@@ -255,12 +254,17 @@ level = "info" # debug, info, warn, error
 # =============================================================================
 # Relay Settings / Relay 设置
 # =============================================================================
-# Bot-to-bot relay timeout. Controls how long cc-connect waits for the target
-# bot to finish responding during `cc-connect relay send`.
-# Bot 间 relay 超时。控制 `cc-connect relay send` 时等待目标 bot 完成回复的最长时间。
+# Bot-to-bot relay settings. timeout_secs controls how long cc-connect waits for
+# the target bot to finish responding during `cc-connect relay send`.
+# visibility controls the extra group-chat echo only; the caller still receives
+# the target response from the relay command when visibility is "none".
+# Bot 间 relay 设置。timeout_secs 控制 `cc-connect relay send` 等待目标 bot
+# 完成回复的最长时间。visibility 只控制群内额外可见消息；设为 "none" 时调用方
+# 仍会从 relay 命令拿到目标回复。
 
 # [relay]
 # timeout_secs = 120        # Max relay wait in seconds; 0 = disabled (default: 120) / relay 最大等待秒数；0 = 禁用（默认 120）
+# visibility = "full"       # "full" (default), "summary", or "none" / 群内可见消息：完整、摘要或不显示
 
 # =============================================================================
 # Auto-Compress / 自动压缩
@@ -649,10 +653,12 @@ level = "info" # debug, info, warn, error
 
 [[projects]]
 name = "my-backend"
-# show_context_indicator = false  # Hide the “[ctx: ~N%]” suffix on assistant replies (default: true / show)
-#                                   # 不在助手回复末尾显示「[ctx: ~N%]」上下文占用提示（默认 true 显示）
-# reply_footer = false             # Hide the Codex-like footer on assistant replies (default: true / show)
-#                                   # 不在助手回复底部显示类似 Codex 的状态行（默认 true 显示）
+# reply_footer = false             # Master toggle for the per-turn reply footer (default: true / show)
+#                                   # 每条助手回复底部状态 footer 总开关（默认 true 显示）
+# show_context_indicator = false   # Hide the footer's first line: model · [effort ·] out/in/cw/cr · ctx % (default: true)
+#                                   # 隐藏 footer 第一行：model · [effort ·] out/in/cw/cr · ctx %（默认 true 显示）
+# show_workdir_indicator = false   # Hide the footer's second line: workspace directory (default: true)
+#                                   # 隐藏 footer 第二行：工作区目录（默认 true 显示）
 # disabled_commands = ["restart", "upgrade", "cron"]  # Disable specific commands for this project
 #                                                     # 禁用该项目的指定命令
 #
@@ -663,8 +669,13 @@ name = "my-backend"
 # filter_external_sessions：为 true 时，/list /switch /delete 仅显示由 cc-connect 创建的会话，
 # 隐藏在相同 work_dir 下通过直接 CLI 创建的会话。默认 false = 显示 agent 的全部会话。
 #
-# admin_from controls who can run privileged commands (/dir, /shell, /restart, /upgrade, /commands addexec).
-# admin_from 控制谁可以执行特权命令（/dir, /shell, /restart, /upgrade, /commands addexec）。
+# admin_from controls who can run privileged commands (/dir, /shell, /restart, /upgrade, /commands addexec, /cron addexec).
+# admin_from 控制谁可以执行特权命令（/dir, /shell, /restart, /upgrade, /commands addexec, /cron addexec）。
+#
+# admin_from must be defined at the [[projects]] level.
+# Do NOT put it under [projects.platforms.options], or it will be ignored.
+# admin_from 必须写在 [[projects]] 这一层。
+# 不要写到 [projects.platforms.options] 下面，否则会被忽略。
 #
 # 💡 TIP: Send /whoami or /status to the bot to get your User ID for allow_from / admin_from.
 # 💡 提示：向机器人发送 /whoami 或者 /status  即可获取你的 User ID，用于填写 allow_from / admin_from。
@@ -989,6 +1000,10 @@ app_secret = "your-feishu-app-secret"
 # client_secret = "your-dingtalk-client-secret"
 # allow_from = "*"  # Allowed staff IDs / 允许的员工 ID
 # share_session_in_channel = false  # If true, all users in a group share one agent session / 群聊共享会话
+# reaction_emoji = "🤔Thinking"  # Emotion on incoming messages (default: "🤔Thinking"); set to "none" to disable
+#                                 # 收到消息时添加的表情回复（默认 "🤔Thinking"）；设为 "none" 可禁用
+# done_emoji = "none"             # Emotion when agent finishes a reply (e.g. "🥳Done"); set to "none" to disable
+#                                 # Agent 完成回复后添加的表情回复（如 "🥳Done"）；设为 "none" 可禁用
 
 # WPS Xiezuo / WPS 协作 (uncomment to enable / 取消注释以启用)
 # 1. Create a WPS Open Platform app and enable event WebSocket delivery
@@ -1022,6 +1037,9 @@ app_secret = "your-feishu-app-secret"
 # token = "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
 # allow_from = "*"  # Allowed Telegram user IDs, e.g. "123456789,987654321"; "*" = all
 #                   # 允许的 Telegram 用户 ID，如 "123456789,987654321"；"*" 表示所有
+# proxy = "http://127.0.0.1:7890"  # Optional HTTP/SOCKS5 proxy for Telegram Bot API / 可选 HTTP/SOCKS5 代理
+# proxy_username = ""              # Optional proxy auth username / 代理用户名
+# proxy_password = ""              # Optional proxy auth password / 代理密码
 # group_reply_all = false  # If true, respond to ALL group messages without @mention / 设为 true 群聊无需 @ 也响应
 # share_session_in_channel = false  # If true, all users in a group share one agent session / 群聊共享会话
 # enable_reactions = false  # If true, add ⚡ reaction to incoming messages / 设为 true 收到消息时添加 ⚡ 表情
@@ -1069,6 +1087,11 @@ app_secret = "your-feishu-app-secret"
 # app_token = "xapp-your-app-level-token"
 # allow_from = "*"  # Allowed Slack user IDs / 允许的 Slack 用户 ID
 # share_session_in_channel = false  # If true, all users in a channel share one agent session / 频道共享会话
+# session_scope = "user"  # Session granularity: "user" (default, per channel+user) |
+#                         # "channel" (one session per channel, same as share_session_in_channel) |
+#                         # "thread" (one session per Slack thread — a new top-level message starts
+#                         #  a fresh session, replies in the same thread continue it).
+#                         # 会话粒度："user"(默认) | "channel"(整个频道一个会话) | "thread"(每个 Slack 话题串一个会话)
 
 # Discord (uncomment to enable / 取消注释以启用)
 # 1. Create an app at https://discord.com/developers/applications / 创建应用
@@ -1497,6 +1520,12 @@ app_secret = "your-feishu-app-secret"
 # startup_wait_ms = 2000       # milliseconds to wait after init_command before accepting messages (default: 2000 when init_command is set)
 # prompt_pattern = '[\$#>%]\s*$'  # regex to detect shell prompt = command done (default shown)
 # poll_interval_ms = 200       # output poll interval in milliseconds (default: 200)
+# window_per_session = false   # When true, each cc-connect session gets its OWN tmux window
+#                              # (own init_command/agent instance) instead of sharing one pane.
+#                              # Enable this for true isolation when the platform splits sessions
+#                              # (e.g. Slack session_scope = "thread"); otherwise all sessions
+#                              # share a single agent and their conversations interleave.
+#                              # 为 true 时每个会话独占一个 tmux 窗口（独立 agent 实例），实现真正隔离。
 #
 # --- Running Claude Code inside tmux ---
 # Set init_command to start claude automatically; adjust prompt_pattern to match
@@ -1535,6 +1564,9 @@ app_secret = "your-feishu-app-secret"
 # Mode options / 模式说明:
 # - "default": Standard mode / 标准模式
 # - "yolo":    Auto-approve all tool calls / 自动批准所有工具调用
+#
+# Optional: pass --agent to opencode (for plugin-defined agents) / 可选：传递 --agent 给 opencode（适用于插件定义的 agent）
+# agent = "Sisyphus - Ultraworker"
 #
 # Optional: specify a model (provider/model format) / 可选：指定模型
 # model = "anthropic/claude-sonnet-4-20250514"
@@ -1856,4 +1888,3 @@ app_secret = "your-feishu-app-secret"
 # [[projects.agent.providers]]
 # name = "google"
 # api_key = "your-gemini-api-key"    # GEMINI_API_KEY
-
