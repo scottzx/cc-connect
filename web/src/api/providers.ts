@@ -88,6 +88,7 @@ export const fetchProviderPresets = () =>
 
 // cc-switch migration
 export interface CCSwitchProvider {
+  id: string;
   name: string;
   app_type: string;
   api_key?: string;
@@ -97,5 +98,11 @@ export interface CCSwitchProvider {
 }
 export const listCCSwitchProviders = () =>
   api.get<{ providers: CCSwitchProvider[]; available: boolean; error?: string }>('/providers/cc-switch');
-export const importCCSwitchProviders = (names: string[]) =>
-  api.post<{ imported: string[]; skipped: string[] }>('/providers/cc-switch', { names });
+export const importCCSwitchProviders = (ids: string[]) =>
+  api.post<{ imported: string[]; skipped: string[] }>('/providers/cc-switch', { ids });
+export const getCCSwitchSettings = () =>
+  api.get<{ settings: Record<string, string>; available: boolean; error?: string }>('/providers/cc-switch-settings');
+export const saveCCSwitchSettings = (settings: Record<string, string>) =>
+  api.post<{ message: string }>('/providers/cc-switch-settings', settings);
+export const switchCCSwitchProvider = (appType: string, providerId: string) =>
+  api.post<{ message: string }>('/providers/cc-switch-switch', { app_type: appType, provider_id: providerId });

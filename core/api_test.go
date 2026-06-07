@@ -17,7 +17,7 @@ func TestHandleSend_AllowsAttachmentOnly(t *testing.T) {
 		replyCtx: "reply-ctx",
 	}
 
-	api := &APIServer{engines: map[string]*Engine{"test": engine}}
+	api := &CCConnectCliServer{engines: map[string]*Engine{"test": engine}}
 	reqBody := SendRequest{
 		Project:    "test",
 		SessionKey: "session-1",
@@ -52,7 +52,7 @@ func TestHandleSend_UnknownProjectReturns404(t *testing.T) {
 		replyCtx: "reply-ctx",
 	}
 
-	api := &APIServer{engines: map[string]*Engine{"projectA": engine}}
+	api := &CCConnectCliServer{engines: map[string]*Engine{"projectA": engine}}
 	body, err := json.Marshal(SendRequest{
 		Project:    "projectB", // typo; does NOT match the loaded engine
 		SessionKey: "session-1",
@@ -84,7 +84,7 @@ func TestHandleSend_EmptyProjectFallsBackToSingleEngine(t *testing.T) {
 		replyCtx: "reply-ctx",
 	}
 
-	api := &APIServer{engines: map[string]*Engine{"solo": engine}}
+	api := &CCConnectCliServer{engines: map[string]*Engine{"solo": engine}}
 	body, err := json.Marshal(SendRequest{
 		// Project deliberately omitted.
 		SessionKey: "session-1",
@@ -109,7 +109,7 @@ func TestHandleSend_EmptyProjectFallsBackToSingleEngine(t *testing.T) {
 func TestHandleSend_EmptyProjectMultipleEnginesRequiresName(t *testing.T) {
 	engineA := NewEngine("a", &stubAgent{}, []Platform{&stubMediaPlatform{stubPlatformEngine: stubPlatformEngine{n: "test"}}}, "", LangEnglish)
 	engineB := NewEngine("b", &stubAgent{}, []Platform{&stubMediaPlatform{stubPlatformEngine: stubPlatformEngine{n: "test"}}}, "", LangEnglish)
-	api := &APIServer{engines: map[string]*Engine{"a": engineA, "b": engineB}}
+	api := &CCConnectCliServer{engines: map[string]*Engine{"a": engineA, "b": engineB}}
 
 	body, err := json.Marshal(SendRequest{
 		SessionKey: "session-1",
@@ -157,7 +157,7 @@ func TestHandleCronExec_TriggersJob(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	api := &APIServer{engines: map[string]*Engine{"test": engine}, cron: scheduler}
+	api := &CCConnectCliServer{engines: map[string]*Engine{"test": engine}, cron: scheduler}
 	body, err := json.Marshal(map[string]any{"id": job.ID})
 	if err != nil {
 		t.Fatalf("marshal request: %v", err)
@@ -210,7 +210,7 @@ func TestHandleCronExec_RunAliasRouteTriggersJob(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	api := &APIServer{engines: map[string]*Engine{"test": engine}, cron: scheduler, mux: http.NewServeMux()}
+	api := &CCConnectCliServer{engines: map[string]*Engine{"test": engine}, cron: scheduler, mux: http.NewServeMux()}
 	api.mux.HandleFunc("/cron/exec", api.handleCronExec)
 	api.mux.HandleFunc("/cron/run", api.handleCronExec)
 	body, err := json.Marshal(map[string]any{"id": job.ID})
@@ -255,7 +255,7 @@ func TestHandleCronExec_ProjectMissingIsBadRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	api := &APIServer{cron: scheduler}
+	api := &CCConnectCliServer{cron: scheduler}
 	body, err := json.Marshal(map[string]any{"id": job.ID})
 	if err != nil {
 		t.Fatalf("marshal request: %v", err)

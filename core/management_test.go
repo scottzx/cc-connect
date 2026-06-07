@@ -2780,14 +2780,14 @@ func TestMgmt_Reload_NoReloadFunc(t *testing.T) {
 func TestMgmt_CCSwitchProviders_PostNotConfigured(t *testing.T) {
 	_, ts, _ := testManagementServer(t, "tok")
 	r := mgmtPost(t, ts.URL+"/api/v1/providers/cc-switch", "tok", map[string]any{
-		"names": []string{"relay-1"},
+		"ids": []string{"relay-1"},
 	})
 	if r.OK {
 		t.Fatal("expected error when cc-switch not configured")
 	}
 }
 
-func TestMgmt_CCSwitchProviders_PostMissingNames(t *testing.T) {
+func TestMgmt_CCSwitchProviders_PostMissingIDs(t *testing.T) {
 	mgmt, ts, _ := testManagementServer(t, "tok")
 	mgmt.SetListCCSwitchProviders(func() ([]CCSwitchProviderInfo, error) {
 		return nil, nil
@@ -2795,12 +2795,12 @@ func TestMgmt_CCSwitchProviders_PostMissingNames(t *testing.T) {
 	mgmt.SetAddGlobalProvider(func(info GlobalProviderInfo) error { return nil })
 
 	r := mgmtPost(t, ts.URL+"/api/v1/providers/cc-switch", "tok", map[string]any{
-		"names": []string{},
+		"ids": []string{},
 	})
 	if r.OK {
-		t.Fatal("expected error for empty names")
+		t.Fatal("expected error for empty ids")
 	}
-	if !strings.Contains(r.Error, "names is required") {
+	if !strings.Contains(r.Error, "ids is required") {
 		t.Fatalf("error = %q", r.Error)
 	}
 }

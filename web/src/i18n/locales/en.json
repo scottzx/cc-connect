@@ -350,6 +350,7 @@
     "addPreset": "Add",
     "added": "Added",
     "tab": {
+      "agents": "My Agents",
       "providers": "My Providers",
       "presets": "Presets"
     },
