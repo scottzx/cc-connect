@@ -968,12 +968,18 @@ function CCSwitchImportModal({
   onImported: () => void;
   t: (key: string, opts?: any) => string;
 }) {
+  const sanitizeName = (name: string) => {
+    return name.toLowerCase().replace(/ /g, '-').replace(/[^a-z0-9-]/g, '');
+  };
+
   const [providers, setProviders] = useState<CCSwitchProvider[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<{ imported: string[]; skipped: string[] } | null>(null);
+
+  const existingSanitized = new Set(Array.from(existingNames).map(n => sanitizeName(n)));
 
   useEffect(() => {
     (async () => {
@@ -983,8 +989,8 @@ function CCSwitchImportModal({
           setError(data.error || t('globalProviders.ccSwitch.notFound'));
         } else {
           setProviders(data.providers || []);
-          const selectable = (data.providers || []).filter(p => !existingNames.has(p.name));
-          setSelected(new Set(selectable.map(p => p.name)));
+          const selectable = (data.providers || []).filter(p => !existingSanitized.has(sanitizeName(p.name)));
+          setSelected(new Set(selectable.map(p => p.id)));
         }
       } catch {
         setError(t('globalProviders.ccSwitch.notFound'));
@@ -993,11 +999,11 @@ function CCSwitchImportModal({
     })();
   }, []);
 
-  const toggle = (name: string) => {
+  const toggle = (id: string) => {
     setSelected(prev => {
       const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   };
@@ -1040,31 +1046,36 @@ function CCSwitchImportModal({
             </p>
             <div className="max-h-72 overflow-y-auto space-y-1">
               {providers.map(p => {
-                const exists = existingNames.has(p.name);
+                const exists = existingSanitized.has(sanitizeName(p.name));
                 return (
                   <label
-                    key={p.name}
+                    key={p.id}
                     className={cn(
                       'flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors cursor-pointer',
                       exists
                         ? 'opacity-50 cursor-not-allowed'
-                        : selected.has(p.name)
+                        : selected.has(p.id)
                           ? 'bg-accent/10 dark:bg-accent/5'
                           : 'hover:bg-gray-50 dark:hover:bg-white/[0.04]',
                     )}
                   >
                     <input
                       type="checkbox"
-                      checked={selected.has(p.name)}
+                      checked={selected.has(p.id)}
                       disabled={exists}
-                      onChange={() => !exists && toggle(p.name)}
+                      onChange={() => !exists && toggle(p.id)}
                       className="rounded border-gray-300 dark:border-white/20 text-accent focus:ring-accent/30"
                     />
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-medium text-gray-900 dark:text-white truncate">
                           {p.name}
                         </span>
+                        {p.id !== p.name && (
+                          <span className="text-xs text-gray-400 dark:text-gray-500 truncate">
+                            ({p.id})
+                          </span>
+                        )}
                         <Badge variant={p.app_type === 'claude' ? 'default' : 'info'}>
                           {p.app_type}
                         </Badge>
@@ -1183,25 +1194,36 @@ function AgentCard({
   const [rawInput, setRawInput] = useState(configVal || '');
   const [saving, setSaving] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
+  const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const isChinese = lang.startsWith('zh');
 
-  useEffect(() => {
-    setSelectedProviderName(currentProvider?.name || '');
-  }, [currentProvider]);
+  // Derive state from props to prevent losing unsaved selection on parent re-renders,
+  // while still updating the inputs if the underlying props actually change from the backend.
+  const [prevProviderName, setPrevProviderName] = useState(currentProvider?.name || '');
+  const [prevDefaultModel, setPrevDefaultModel] = useState(defaultGlobalModel);
+  const [prevConfigVal, setPrevConfigVal] = useState(configVal || '');
 
-  useEffect(() => {
+  const normProviderName = currentProvider?.name || '';
+  const normConfigVal = configVal || '';
+
+  if (normProviderName !== prevProviderName) {
+    setPrevProviderName(normProviderName);
+    setSelectedProviderName(normProviderName);
+  }
+  if (defaultGlobalModel !== prevDefaultModel) {
+    setPrevDefaultModel(defaultGlobalModel);
     setModelInput(defaultGlobalModel);
-  }, [defaultGlobalModel]);
-
-  useEffect(() => {
-    setRawInput(configVal || '');
-  }, [configVal]);
+  }
+  if (normConfigVal !== prevConfigVal) {
+    setPrevConfigVal(normConfigVal);
+    setRawInput(normConfigVal);
+  }
 
   const handleProviderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newName = e.target.value;
     setSelectedProviderName(newName);
 
-    // Auto display corresponding model (Requirement 2)
+    // Auto display corresponding model
     const chosen = providers.find(p => p.name === newName);
     if (chosen) {
       const newModel = chosen.model || '';
@@ -1237,6 +1259,7 @@ function AgentCard({
 
   const handleSaveAll = async () => {
     setSaving(true);
+    setStatusMsg(null);
     try {
       const configChanged = modelInput !== defaultGlobalModel || rawInput !== (configVal || '');
       if (configChanged) {
@@ -1246,15 +1269,29 @@ function AgentCard({
 
       const providerChanged = selectedProviderName !== (currentProvider?.name || '');
       if (providerChanged) {
-        await onSwitch(agent.type, selectedProviderName);
+        const chosen = providers.find(p => p.name === selectedProviderName);
+        const pId = chosen?.id || selectedProviderName;
+        await onSwitch(agent.type, pId);
       } else if (configChanged) {
         // If only config changed, trigger reload via provider switch
         if (currentProvider?.name) {
-          await onSwitch(agent.type, currentProvider.name);
+          const chosen = providers.find(p => p.name === currentProvider.name);
+          const pId = chosen?.id || currentProvider.name;
+          await onSwitch(agent.type, pId);
         }
       }
-    } catch (e) {
+
+      setStatusMsg({
+        type: 'success',
+        text: isChinese ? '切换成功并已保存配置！' : 'Provider and configuration saved successfully!'
+      });
+      setTimeout(() => setStatusMsg(null), 3000);
+    } catch (e: any) {
       console.error(e);
+      setStatusMsg({
+        type: 'error',
+        text: isChinese ? `保存失败: ${e.message || e}` : `Save failed: ${e.message || e}`
+      });
     }
     setSaving(false);
   };
@@ -1263,6 +1300,7 @@ function AgentCard({
     setSelectedProviderName(currentProvider?.name || '');
     setModelInput(defaultGlobalModel);
     setRawInput(configVal || '');
+    setStatusMsg(null);
   };
 
   return (
@@ -1296,7 +1334,7 @@ function AgentCard({
           >
             <option value="" disabled={!!selectedProviderName}>-- Select Provider --</option>
             {providers.map(p => (
-              <option key={p.name} value={p.name}>
+              <option key={p.id} value={p.name}>
                 {p.name} {p.model ? `(${p.model})` : ''}
               </option>
             ))}
@@ -1343,6 +1381,18 @@ function AgentCard({
           )}
         </div>
 
+        {/* Status Message */}
+        {statusMsg && (
+          <div className={cn(
+            'text-xs px-3 py-2 rounded-xl transition-all animate-in fade-in duration-200',
+            statusMsg.type === 'success'
+              ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400 border border-green-200 dark:border-green-800/20'
+              : 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400 border border-red-200 dark:border-red-800/20'
+          )}>
+            {statusMsg.text}
+          </div>
+        )}
+
         {/* Unified Save & Reset Confirmation Section */}
         {hasChanges && (
           <div className="flex gap-2 pt-3 justify-end border-t border-gray-100 dark:border-white/[0.06] animate-in fade-in slide-in-from-bottom-2 duration-200">
@@ -1369,3 +1419,4 @@ function AgentCard({
     </Card>
   );
 }
+

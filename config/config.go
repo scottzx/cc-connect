@@ -424,6 +424,7 @@ type ProviderModelConfig struct {
 }
 
 type ProviderConfig struct {
+	ID              string                           `toml:"id,omitempty" json:"id,omitempty"`
 	Name            string                           `toml:"name"`
 	APIKey          string                           `toml:"api_key"`
 	BaseURL         string                           `toml:"base_url,omitempty"`
@@ -1257,6 +1258,18 @@ func ListGlobalProviders() ([]ProviderConfig, error) {
 	return cfg.Providers, nil
 }
 
+func sanitizeProviderName(name string) string {
+	id := strings.ToLower(name)
+	id = strings.ReplaceAll(id, " ", "-")
+	var sb strings.Builder
+	for _, r := range id {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			sb.WriteRune(r)
+		}
+	}
+	return sb.String()
+}
+
 // AddGlobalProvider appends a provider to the top-level [[providers]] and saves.
 func AddGlobalProvider(provider ProviderConfig) error {
 	configMu.Lock()
@@ -1266,8 +1279,11 @@ func AddGlobalProvider(provider ProviderConfig) error {
 		return err
 	}
 	for _, existing := range cfg.Providers {
-		if existing.Name == provider.Name {
-			return fmt.Errorf("global provider %q already exists", provider.Name)
+		if existing.ID == provider.ID && provider.ID != "" {
+			return fmt.Errorf("global provider with ID %q already exists", provider.ID)
+		}
+		if sanitizeProviderName(existing.Name) == sanitizeProviderName(provider.Name) {
+			return fmt.Errorf("global provider %q already exists (sanitized ID clash)", provider.Name)
 		}
 	}
 	cfg.Providers = append(cfg.Providers, provider)

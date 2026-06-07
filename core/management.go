@@ -135,6 +135,7 @@ func (m *ManagementServer) SetSaveGlobalSettings(fn func(map[string]any) error) 
 
 // GlobalProviderInfo is the wire type for global provider CRUD in the management API.
 type GlobalProviderInfo struct {
+	ID         string            `json:"id,omitempty"`
 	Name       string            `json:"name"`
 	APIKey     string            `json:"api_key,omitempty"`
 	BaseURL    string            `json:"base_url,omitempty"`
@@ -197,6 +198,7 @@ func (m *ManagementServer) SetSwitchCCSwitchProvider(fn func(string, string) err
 
 // CCSwitchProviderInfo represents a provider read from the cc-switch database.
 type CCSwitchProviderInfo struct {
+	ID        string `json:"id"`
 	Name      string `json:"name"`
 	AppType   string `json:"app_type"`
 	APIKey    string `json:"api_key,omitempty"`
@@ -1931,14 +1933,14 @@ func (m *ManagementServer) handleCCSwitchProviders(w http.ResponseWriter, r *htt
 			return
 		}
 		var body struct {
-			Names []string `json:"names"`
+			IDs []string `json:"ids"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			mgmtError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 			return
 		}
-		if len(body.Names) == 0 {
-			mgmtError(w, http.StatusBadRequest, "names is required")
+		if len(body.IDs) == 0 {
+			mgmtError(w, http.StatusBadRequest, "ids is required")
 			return
 		}
 
@@ -1947,19 +1949,20 @@ func (m *ManagementServer) handleCCSwitchProviders(w http.ResponseWriter, r *htt
 			mgmtError(w, http.StatusInternalServerError, "read cc-switch: "+err.Error())
 			return
 		}
-		byName := make(map[string]CCSwitchProviderInfo, len(all))
+		byID := make(map[string]CCSwitchProviderInfo, len(all))
 		for _, p := range all {
-			byName[p.Name] = p
+			byID[p.ID] = p
 		}
 
 		var imported, skipped []string
-		for _, name := range body.Names {
-			src, ok := byName[name]
+		for _, id := range body.IDs {
+			src, ok := byID[id]
 			if !ok {
-				skipped = append(skipped, name)
+				skipped = append(skipped, id)
 				continue
 			}
 			gp := GlobalProviderInfo{
+				ID:      src.ID,
 				Name:    src.Name,
 				APIKey:  src.APIKey,
 				BaseURL: src.BaseURL,
@@ -1971,10 +1974,10 @@ func (m *ManagementServer) handleCCSwitchProviders(w http.ResponseWriter, r *htt
 				gp.AgentTypes = []string{"codex"}
 			}
 			if err := m.addGlobalProvider(gp); err != nil {
-				skipped = append(skipped, name)
+				skipped = append(skipped, id)
 				continue
 			}
-			imported = append(imported, name)
+			imported = append(imported, id)
 		}
 		mgmtJSON(w, http.StatusOK, map[string]any{
 			"imported": imported,
