@@ -95,8 +95,8 @@ export default function ProviderList() {
   const [ccSettings, setCcSettings] = useState<Record<string, string>>({});
   const [ccLoading, setCcLoading] = useState(false);
 
-  const loadCcSwitchData = useCallback(async () => {
-    setCcLoading(true);
+  const loadCcSwitchData = useCallback(async (silent = false) => {
+    if (!silent) setCcLoading(true);
     try {
       const provRes = await listCCSwitchProviders();
       setCcProviders(provRes.providers || []);
@@ -105,7 +105,7 @@ export default function ProviderList() {
     } catch (e) {
       console.error(e);
     }
-    setCcLoading(false);
+    if (!silent) setCcLoading(false);
   }, []);
 
   const refresh = useCallback(async () => {
@@ -148,7 +148,7 @@ export default function ProviderList() {
   const handleSwitchProvider = async (appType: string, providerId: string) => {
     try {
       await switchCCSwitchProvider(appType, providerId);
-      await loadCcSwitchData();
+      await loadCcSwitchData(true);
     } catch (e) {
       console.error(e);
     }
@@ -160,7 +160,7 @@ export default function ProviderList() {
       const currentVal = ccSettings[key];
       const updatedVal = updateModelInConfig(appType, currentVal, newModel);
       await saveCCSwitchSettings({ [key]: updatedVal });
-      await loadCcSwitchData();
+      await loadCcSwitchData(true);
     } catch (e) {
       console.error(e);
     }
@@ -1137,7 +1137,7 @@ function AgentGrid({
   t,
   lang,
 }: AgentGridProps) {
-  if (loading) return <p className="text-sm text-gray-400">{t('common.loading')}</p>;
+  if (loading && ccProviders.length === 0) return <p className="text-sm text-gray-400">{t('common.loading')}</p>;
 
   return (
     <div className="grid gap-6 md:grid-cols-2">
