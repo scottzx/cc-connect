@@ -2,7 +2,17 @@
   "permissions": {
     "allow": [
       "Bash(git add:*)",
-      "Bash(git commit -m ':*)"
+      "Bash(git commit -m ':*)",
+      "Bash(git stash *)",
+      "Bash(go build *)",
+      "Bash(go test *)",
+      "Bash(git commit -m 'feat\\(providers\\): use sanitized provider ID for cc-switch import and dedup *)",
+      "Bash(git checkout *)",
+      "Bash(git merge *)",
+      "Bash(git push *)",
+      "WebSearch",
+      "WebFetch(domain:docs.claude.com)"
     ]
-  }
+  },
+ "language":"chinese"
 }

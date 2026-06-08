@@ -144,3 +144,4 @@ credentials/
 
 .codex
 cc-connect-new
+.claude/settings.local.json
