@@ -129,6 +129,7 @@ class CcConnectPanelElement extends HTMLElement {
   private root: Root | undefined;
   private mounted = false;
   private portalContainer: HTMLDivElement | null = null;
+  private wrapper: HTMLDivElement | null = null; // dark-mode container
 
   connectedCallback(): void {
     if (this.mounted) return;
@@ -144,7 +145,8 @@ class CcConnectPanelElement extends HTMLElement {
     if (token) applyAuth(token, serverUrl);
 
     // Theme + lang initial sync.
-    applyTheme(this.getAttribute("theme") || "dark");
+    const initialTheme = this.getAttribute("theme") || "dark";
+    applyTheme(initialTheme);
     applyLang(this.getAttribute("lang") || "en");
 
     const initialPath = this.getAttribute("route")
@@ -160,16 +162,37 @@ class CcConnectPanelElement extends HTMLElement {
     style.textContent = embedCss;
     shadow.appendChild(style);
 
+    // CSS custom properties for the accent color (defined on :root in
+    // the standalone build, but we're inside a shadow tree so :root
+    // refers to the shadow root — we define them on :host instead).
+    const vars = document.createElement("style");
+    vars.textContent = `
+      :host {
+        --color-accent: 22 163 74;
+        --color-accent-dim: 21 128 61;
+      }
+    `;
+    shadow.appendChild(vars);
+
+    // Dark-mode wrapper. Tailwind's darkMode: 'class' relies on a
+    // `.dark` ancestor in the DOM tree. Since the shadow boundary
+    // isolates us from the host's <html class="dark">, we must
+    // maintain our own `.dark` wrapper.
+    this.wrapper = document.createElement("div");
+    this.wrapper.className = initialTheme === "dark" ? "dark" : "";
+    this.wrapper.style.cssText = "width:100%;height:100%;display:flex;flex-direction:column;min-height:0";
+    shadow.appendChild(this.wrapper);
+
     // Portal container: Radix UI / React portals will be mounted here
     // (inside the shadow root) instead of document.body.
     this.portalContainer = document.createElement("div");
     this.portalContainer.className = "cc-portal-container";
-    shadow.appendChild(this.portalContainer);
+    this.wrapper.appendChild(this.portalContainer);
 
     // React root container.
     const appRoot = document.createElement("div");
     appRoot.className = "cc-embed-root";
-    shadow.appendChild(appRoot);
+    this.wrapper.appendChild(appRoot);
 
     this.root = createRoot(appRoot);
     this.root.render(
@@ -187,6 +210,7 @@ class CcConnectPanelElement extends HTMLElement {
     this.root = undefined;
     this.mounted = false;
     this.portalContainer = null;
+    this.wrapper = null;
   }
 
   attributeChangedCallback(
@@ -203,6 +227,14 @@ class CcConnectPanelElement extends HTMLElement {
     if (value == null) return;
     if (name === "theme") {
       applyTheme(value);
+      // Toggle the shadow-root scoped dark class so tailwind's
+      // dark: variants work inside the shadow tree. We read the
+      // resolved value from the store (applyTheme already called
+      // setTheme, which resolves system → light/dark).
+      if (this.wrapper) {
+        const resolved = useThemeStore.getState().resolved;
+        this.wrapper.className = resolved === 'dark' ? 'dark' : '';
+      }
     } else if (name === "lang") {
       applyLang(value);
     } else if (name === "route") {

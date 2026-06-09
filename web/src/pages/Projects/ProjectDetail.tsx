@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import {
   ArrowLeft, Plug, Heart, Settings, Layers, Zap, Pause, Play,
   Trash2, Plus, Check, Clock, ExternalLink, Link2,
@@ -11,6 +11,7 @@ import { listProviders, addProvider, removeProvider, activateProvider, type Prov
 import { getHeartbeat, pauseHeartbeat, resumeHeartbeat, triggerHeartbeat, setHeartbeatInterval, type HeartbeatStatus } from '@/api/heartbeat';
 import { restartSystem } from '@/api/status';
 import { formatTime, cn } from '@/lib/utils';
+import { useAuthStore } from '@/store/auth';
 import PlatformSetupQR from './PlatformSetupQR';
 import PlatformManualForm from './PlatformManualForm';
 import { platformMeta } from '@/lib/platformMeta';
@@ -36,6 +37,8 @@ type Tab = 'overview' | 'providers' | 'heartbeat' | 'settings';
 export default function ProjectDetail() {
   const { t } = useTranslation();
   const { name } = useParams<{ name: string }>();
+  const location = useLocation();
+  const authToken = useAuthStore(s => s.token);
   const [tab, setTab] = useState<Tab>('overview');
   const [project, setProject] = useState<ProjectDetailType | null>(null);
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -245,7 +248,11 @@ export default function ProjectDetail() {
 
         {isEmbedded && (
           <button
-            onClick={() => window.open(window.location.href, '_blank')}
+            onClick={() => {
+              const path = location.pathname;
+              const tokenParam = authToken ? `?token=${encodeURIComponent(authToken)}` : '';
+              window.open(`/cc-connect${path}${tokenParam}`, '_blank');
+            }}
             className="p-1.5 rounded-lg text-gray-500 hover:text-gray-950 dark:text-gray-400 dark:hover:text-white bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-700 shadow-sm shrink-0"
             title="在新窗口打开"
           >

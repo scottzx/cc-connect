@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useLocation } from 'react-router-dom';
 import {
   ArrowLeft, Send, User, Bot, Circle, WifiOff,
   Copy, Check, FileText, Image as ImageIcon, Loader2,
@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { Badge, Button } from '@/components/ui';
 import { listSessions, getSession, type Session, type SessionDetail } from '@/api/sessions';
+import { useAuthStore } from '@/store/auth';
 import {
   useBridgeSocket, fetchBridgeConfig,
   type BridgeConfig, type BridgeIncoming, type BridgeStatus,
@@ -290,6 +291,8 @@ function MsgCopyButton({ text }: { text: string }) {
 export default function ChatView() {
   const { t } = useTranslation();
   const { name: projectName } = useParams<{ name: string }>();
+  const location = useLocation();
+  const authToken = useAuthStore(s => s.token);
 
   // Session state
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -603,7 +606,11 @@ export default function ChatView() {
 
         {isEmbedded && (
           <button
-            onClick={() => window.open(window.location.href, '_blank')}
+            onClick={() => {
+              const path = location.pathname;
+              const tokenParam = authToken ? `?token=${encodeURIComponent(authToken)}` : '';
+              window.open(`/cc-connect${path}${tokenParam}`, '_blank');
+            }}
             className="p-1.5 rounded-lg text-gray-500 hover:text-gray-955 dark:text-gray-400 dark:hover:text-white bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-700 shadow-sm shrink-0"
             title="在新窗口打开"
           >
