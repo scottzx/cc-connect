@@ -6,16 +6,21 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
 
 const (
-	defaultPresetsURL         = "https://raw.githubusercontent.com/chenhg5/cc-connect/main/provider-presets.json"
-	fallbackPresetsURL        = "https://gitee.com/chenhg5/cc-connect/raw/main/provider-presets.json"
-	presetsCacheTTL           = 6 * time.Hour
-	presetsHTTPTimeout        = 15 * time.Second
-	presetsFallbackHTTPTimeout = 10 * time.Second
+	defaultPresetsURL  = "https://raw.githubusercontent.com/scottzx/cc-connect/main/provider-presets.json"
+	presetsCacheTTL    = 6 * time.Hour
+	presetsHTTPTimeout = 15 * time.Second
+	// presetsLocalFile is the on-disk fallback used when the remote URL is
+	// unreachable (e.g. in mainland China where GitHub raw is often blocked).
+	// The binary looks for this filename in the current working directory and
+	// next to the executable.
+	presetsLocalFile = "provider-presets.json"
 )
 
 // ProviderPreset describes a recommended provider available from the remote presets list.
@@ -116,8 +121,11 @@ func (c *presetsCache) fetch() (*ProviderPresetsResponse, error) {
 
 	result, err := fetchPresetsFromURL(primaryURL, presetsHTTPTimeout)
 	if err != nil {
-		slog.Warn("primary presets fetch failed, trying fallback", "url", primaryURL, "error", err)
-		result, err = fetchPresetsFromURL(fallbackPresetsURL, presetsFallbackHTTPTimeout)
+		slog.Warn("primary presets fetch failed, falling back to local file", "url", primaryURL, "error", err)
+		result, err = fetchPresetsFromFile()
+		if err != nil {
+			slog.Error("local presets file fallback also failed", "error", err)
+		}
 	}
 	if err != nil {
 		if c.data != nil {
@@ -155,4 +163,30 @@ func fetchPresetsFromURL(url string, timeout time.Duration) (*ProviderPresetsRes
 		return nil, fmt.Errorf("parse JSON from %s: %w", url, err)
 	}
 	return &result, nil
+}
+
+// fetchPresetsFromFile reads the bundled local presets JSON as a fallback when
+// the remote URL is unreachable. It looks in (1) the current working directory
+// and (2) the directory containing the running executable.
+func fetchPresetsFromFile() (*ProviderPresetsResponse, error) {
+	candidates := []string{presetsLocalFile}
+	if exe, err := os.Executable(); err == nil {
+		candidates = append(candidates, filepath.Join(filepath.Dir(exe), presetsLocalFile))
+	}
+
+	var lastErr error
+	for _, path := range candidates {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		var result ProviderPresetsResponse
+		if err := json.Unmarshal(data, &result); err != nil {
+			return nil, fmt.Errorf("parse %s: %w", path, err)
+		}
+		slog.Info("loaded provider presets from local file", "path", path)
+		return &result, nil
+	}
+	return nil, fmt.Errorf("read local presets (tried %v): %w", candidates, lastErr)
 }

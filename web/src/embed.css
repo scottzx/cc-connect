@@ -1,0 +1,5 @@
+/* Bundle every cc-connect stylesheet into one file that can be inlined
+ * into the embed bundle. Keep this in sync with `main.tsx`'s CSS imports
+ * so embed mode looks identical to standalone mode. */
+
+@import "./index.css";

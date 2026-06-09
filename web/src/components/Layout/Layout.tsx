@@ -5,7 +5,14 @@ import Footer from './Footer';
 import { cn } from '@/lib/utils';
 
 export default function Layout() {
-  const isEmbedded = window.self !== window.top;
+  // Iframe embed: window.self !== window.top.
+  // Custom-element embed: __CC_EMBED_MODE__ is set by `embed.tsx` before
+  // the React tree mounts. The Layout chrome (sidebar / header / footer)
+  // is owned by the host in both cases, so we hide it the same way.
+  const isEmbedded =
+    window.self !== window.top ||
+    (globalThis as unknown as { __CC_EMBED_MODE__?: boolean })
+      .__CC_EMBED_MODE__ === true;
   return (
     <div
       className={cn(

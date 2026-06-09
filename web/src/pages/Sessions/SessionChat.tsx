@@ -442,7 +442,7 @@ export default function SessionChat() {
 
   const canSend = bridgeStatus === 'connected';
 
-  const isEmbedded = window.self !== window.top;
+  const isEmbedded = window.self !== window.top || (globalThis as any).__CC_EMBED_MODE__ === true;
 
   return (
     <div className="flex flex-col flex-1 min-h-0 animate-fade-in">

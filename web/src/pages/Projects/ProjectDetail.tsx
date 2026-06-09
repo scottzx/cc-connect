@@ -227,7 +227,7 @@ export default function ProjectDetail() {
     return <div className="flex items-center justify-center h-64 text-gray-400 animate-pulse">Loading...</div>;
   }
 
-  const isEmbedded = window.self !== window.top;
+  const isEmbedded = window.self !== window.top || (globalThis as any).__CC_EMBED_MODE__ === true;
 
   return (
     <div className="space-y-6 animate-fade-in ">

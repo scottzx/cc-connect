@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:embed": "vite build --config vite.embed.config.ts",
     "preview": "vite preview"
   },
   "dependencies": {
