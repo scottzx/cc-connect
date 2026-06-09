@@ -205,25 +205,35 @@ export default function ProviderList() {
 
   return (
     <div className="space-y-4 sm:space-y-6 ">
-      {/* Header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-white">
+      {/* Module Header: title + description on the left, two icons on the right, parallel layout */}
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-white truncate">
             {t('globalProviders.title')}
           </h1>
-          <p className="mt-0.5 text-xs sm:text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
+          <p className="mt-1 text-xs sm:text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
             {t('globalProviders.subtitle')}
           </p>
         </div>
-        <div className="flex gap-2 shrink-0">
-          <Button variant="secondary" onClick={() => setShowCCSwitchModal(true)}>
-            <Download size={16} className="sm:mr-1.5" />
-            <span className="hidden sm:inline">{t('globalProviders.importCCSwitch')}</span>
-          </Button>
-          <Button onClick={() => { setEditProvider(null); setShowAddModal(true); }}>
-            <Plus size={16} className="sm:mr-1.5" />
-            <span className="hidden sm:inline">{t('globalProviders.add')}</span>
-          </Button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => setShowCCSwitchModal(true)}
+            title={t('globalProviders.importCCSwitch')}
+            aria-label={t('globalProviders.importCCSwitch')}
+            className="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-gray-100/90 dark:bg-white/[0.08] text-gray-700 dark:text-gray-300 hover:bg-gray-200/90 dark:hover:bg-white/[0.12] border border-transparent dark:border-white/[0.06] transition-all duration-200"
+          >
+            <Download size={16} />
+          </button>
+          <button
+            type="button"
+            onClick={() => { setEditProvider(null); setShowAddModal(true); }}
+            title={t('globalProviders.add')}
+            aria-label={t('globalProviders.add')}
+            className="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-accent text-white dark:text-black hover:bg-accent-dim font-medium dark:shadow-[0_0_20px_-6px_rgba(66,255,156,0.55)] transition-all duration-200"
+          >
+            <Plus size={16} />
+          </button>
         </div>
       </div>
 

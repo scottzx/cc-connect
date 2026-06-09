@@ -337,7 +337,7 @@
   },
   "globalProviders": {
     "title": "Providers",
-    "subtitle": "Manage shared API providers across all projects",
+    "subtitle": "Manage global shared LLM API providers",
     "add": "Add Provider",
     "importCCSwitch": "Import from CC-Switch",
     "edit": "Edit Provider",

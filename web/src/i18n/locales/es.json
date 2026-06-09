@@ -337,7 +337,7 @@
   },
   "globalProviders": {
     "title": "Gestión de proveedores",
-    "subtitle": "Administra proveedores de API compartidos globalmente entre todos los proyectos",
+    "subtitle": "Administra proveedores de API LLM compartidos globalmente",
     "add": "Agregar proveedor",
     "importCCSwitch": "Importar desde CC-Switch",
     "edit": "Editar proveedor",

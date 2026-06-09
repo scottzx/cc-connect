@@ -337,7 +337,7 @@
   },
   "globalProviders": {
     "title": "プロバイダー管理",
-    "subtitle": "全プロジェクトで共有できるグローバル API プロバイダーを管理",
+    "subtitle": "グローバル共有の LLM API プロバイダーを管理",
     "add": "プロバイダーを追加",
     "importCCSwitch": "CC-Switch からインポート",
     "edit": "プロバイダーを編集",

@@ -337,7 +337,7 @@
   },
   "globalProviders": {
     "title": "服务商管理",
-    "subtitle": "管理全局共享的 API 服务商，可被所有项目引用",
+    "subtitle": "管理全局共享的大模型API服务商",
     "add": "添加服务商",
     "importCCSwitch": "从 CC-Switch 导入",
     "edit": "编辑服务商",
