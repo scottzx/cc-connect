@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '@/store/auth';
+import { useThemeStore } from '@/store/theme';
 import Layout from '@/components/Layout/Layout';
 import Login from '@/pages/Login';
 import Dashboard from '@/pages/Dashboard';
@@ -37,21 +38,24 @@ function LoginRoute() {
 }
 
 export default function App() {
+  const resolved = useThemeStore((s) => s.resolved);
   return (
-    <Routes>
-      <Route path="/login" element={<LoginRoute />} />
-      <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-        <Route index element={<Dashboard />} />
-        <Route path="projects" element={<ProjectList />} />
-        <Route path="projects/:name" element={<ProjectDetail />} />
-        <Route path="providers" element={<ProviderList />} />
-        <Route path="skills" element={<SkillList />} />
-        <Route path="chat" element={<ChatList />} />
-        <Route path="chat/:name" element={<ChatView />} />
-        <Route path="cron" element={<CronList />} />
-        <Route path="system" element={<SystemConfig />} />
-      </Route>
-    </Routes>
+    <div className={`cc-connect-panel-root${resolved === 'dark' ? ' dark' : ''}`}>
+      <Routes>
+        <Route path="/login" element={<LoginRoute />} />
+        <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+          <Route index element={<Dashboard />} />
+          <Route path="projects" element={<ProjectList />} />
+          <Route path="projects/:name" element={<ProjectDetail />} />
+          <Route path="providers" element={<ProviderList />} />
+          <Route path="skills" element={<SkillList />} />
+          <Route path="chat" element={<ChatList />} />
+          <Route path="chat/:name" element={<ChatView />} />
+          <Route path="cron" element={<CronList />} />
+          <Route path="system" element={<SystemConfig />} />
+        </Route>
+      </Routes>
+    </div>
   );
 }
 

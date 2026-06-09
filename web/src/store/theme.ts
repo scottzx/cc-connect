@@ -16,8 +16,12 @@ function resolveTheme(theme: Theme): 'light' | 'dark' {
   return theme;
 }
 
-function applyTheme(resolved: 'light' | 'dark') {
-  document.documentElement.classList.toggle('dark', resolved === 'dark');
+function applyTheme(resolved: 'light' | 'dark', target?: HTMLElement | null) {
+  // In embed mode, the shadow root container receives the class instead of
+  // documentElement, so we skip document-level manipulation.
+  const el = target ?? (!globalThis.__CC_EMBED_MODE__ ? document.documentElement : null);
+  if (!el) return;
+  el.classList.toggle('dark', resolved === 'dark');
 }
 
 export const useThemeStore = create<ThemeState>((set) => ({

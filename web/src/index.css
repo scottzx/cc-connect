@@ -4,6 +4,12 @@
 @tailwind components;
 @tailwind utilities;
 
+:host {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 :root {
   --color-accent: 22 163 74;
   --color-accent-dim: 21 128 61;
@@ -13,12 +19,23 @@
   --color-accent-dim: 43 200 122;
 }
 
-body {
+body, .cc-connect-panel-root {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+.cc-connect-panel-root {
+  width: 100%;
+  height: 100%;
+}
+
+.cc-embed-root {
+  width: 100%;
+  height: 100%;
+  display: contents;
+}
+
 
 pre code.hljs {
   background: transparent;

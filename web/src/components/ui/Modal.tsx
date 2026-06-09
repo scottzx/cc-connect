@@ -2,6 +2,7 @@ import { cn } from '@/lib/utils';
 import { X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import type { ReactNode } from 'react';
+import { usePortalContainer } from '@/lib/portal-container';
 
 interface ModalProps {
   open: boolean;
@@ -12,6 +13,7 @@ interface ModalProps {
 }
 
 export function Modal({ open, onClose, title, children, className }: ModalProps) {
+  const portalContainer = usePortalContainer();
   if (!open) return null;
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
@@ -47,6 +49,6 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
         </div>
       </div>
     </div>,
-    document.body
+    portalContainer ?? document.body
   );
 }

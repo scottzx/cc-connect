@@ -35,22 +35,13 @@ import { useAuthStore } from "./store/auth";
 import { useThemeStore } from "./store/theme";
 import i18n from "./i18n";
 import embedCss from "./embed.css?inline";
+import { PortalContainerContext } from "./lib/portal-container";
 
 declare global {
   // Set in connectedCallback. Read by Layout.tsx (and any other component
   // that needs to know it is running inside the host, not an iframe).
   // eslint-disable-next-line no-var
   var __CC_EMBED_MODE__: boolean | undefined;
-}
-
-let cssInjected = false;
-function ensureCssInjected(): void {
-  if (cssInjected) return;
-  cssInjected = true;
-  const style = document.createElement("style");
-  style.setAttribute("data-cc-embed", "");
-  style.textContent = embedCss;
-  document.head.appendChild(style);
 }
 
 function toI18nLang(lang: string): string {
@@ -137,12 +128,11 @@ class CcConnectPanelElement extends HTMLElement {
 
   private root: Root | undefined;
   private mounted = false;
+  private portalContainer: HTMLDivElement | null = null;
 
   connectedCallback(): void {
     if (this.mounted) return;
     this.mounted = true;
-
-    ensureCssInjected();
 
     // Flip the embed flag so Layout.tsx hides its sidebar/header/footer
     // (it already does this for iframes; we extend the check).
@@ -161,13 +151,34 @@ class CcConnectPanelElement extends HTMLElement {
       ? normalizeRoute(this.getAttribute("route") as string)
       : "/providers";
 
-    this.classList.add("cc-connect-panel-root");
-    this.root = createRoot(this);
+    // ── Shadow DOM isolation ──────────────────────────────────────────
+    // Attach shadow so host page styles cannot bleed into the panel.
+    const shadow = this.attachShadow({ mode: "open" });
+
+    // Inject all bundled CSS into the shadow root.
+    const style = document.createElement("style");
+    style.textContent = embedCss;
+    shadow.appendChild(style);
+
+    // Portal container: Radix UI / React portals will be mounted here
+    // (inside the shadow root) instead of document.body.
+    this.portalContainer = document.createElement("div");
+    this.portalContainer.className = "cc-portal-container";
+    shadow.appendChild(this.portalContainer);
+
+    // React root container.
+    const appRoot = document.createElement("div");
+    appRoot.className = "cc-embed-root";
+    shadow.appendChild(appRoot);
+
+    this.root = createRoot(appRoot);
     this.root.render(
-      <MemoryRouter initialEntries={[initialPath]}>
-        <App />
-        <EmbedBridge target={this} />
-      </MemoryRouter>,
+      <PortalContainerContext.Provider value={this.portalContainer}>
+        <MemoryRouter initialEntries={[initialPath]}>
+          <App />
+          <EmbedBridge target={this} />
+        </MemoryRouter>
+      </PortalContainerContext.Provider>,
     );
   }
 
@@ -175,6 +186,7 @@ class CcConnectPanelElement extends HTMLElement {
     this.root?.unmount();
     this.root = undefined;
     this.mounted = false;
+    this.portalContainer = null;
   }
 
   attributeChangedCallback(
