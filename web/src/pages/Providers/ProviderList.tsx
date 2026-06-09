@@ -204,35 +204,37 @@ export default function ProviderList() {
   };
 
   return (
-    <div className="space-y-6 ">
+    <div className="space-y-4 sm:space-y-6 ">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-gray-900 dark:text-white">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-white">
             {t('globalProviders.title')}
           </h1>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          <p className="mt-0.5 text-xs sm:text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
             {t('globalProviders.subtitle')}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 shrink-0">
           <Button variant="secondary" onClick={() => setShowCCSwitchModal(true)}>
-            <Download size={16} className="mr-1.5" /> {t('globalProviders.importCCSwitch')}
+            <Download size={16} className="sm:mr-1.5" />
+            <span className="hidden sm:inline">{t('globalProviders.importCCSwitch')}</span>
           </Button>
           <Button onClick={() => { setEditProvider(null); setShowAddModal(true); }}>
-            <Plus size={16} className="mr-1.5" /> {t('globalProviders.add')}
+            <Plus size={16} className="sm:mr-1.5" />
+            <span className="hidden sm:inline">{t('globalProviders.add')}</span>
           </Button>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 p-1 rounded-xl bg-gray-100 dark:bg-white/[0.06] w-fit">
+      <div className="flex gap-1 p-1 rounded-xl bg-gray-100 dark:bg-white/[0.06] w-full sm:w-fit">
         {(['agents', 'providers', 'presets'] as const).map(key => (
           <button
             key={key}
             onClick={() => setTab(key)}
             className={cn(
-              'px-4 py-1.5 rounded-lg text-sm font-medium transition-all',
+              'flex-1 sm:flex-none px-3 sm:px-4 py-1.5 rounded-lg text-sm font-medium transition-all',
               tab === key
                 ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm'
                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300',
