@@ -1018,6 +1018,7 @@ func (m *ManagementServer) handleProjectSessions(w http.ResponseWriter, r *http.
 		e.sessions.Save()
 
 		mgmtJSON(w, http.StatusOK, map[string]any{
+			"id":          s.ID,
 			"session_key": body.SessionKey,
 			"name":        s.GetName(),
 		})
