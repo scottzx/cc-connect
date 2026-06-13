@@ -21,3 +21,14 @@ export function formatTime(iso: string): string {
 export function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max) + '...' : s;
 }
+
+// Project names follow the `<workspaceSlug>__<agentType>` convention.
+// The `__<agentType>` suffix is redundant with the agent-type badge shown
+// alongside it, so strip it for display. Falls back to the raw name when the
+// suffix doesn't match (legacy / manually-named projects).
+export function projectDisplayName(name: string, agentType?: string): string {
+  if (agentType && name.endsWith(`__${agentType}`)) {
+    return name.slice(0, name.length - agentType.length - 2);
+  }
+  return name;
+}
