@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Plug, Plus, Trash2, Pencil, ExternalLink, Star, Sparkles, X, Eye, EyeOff, Check,
@@ -27,6 +27,74 @@ const AGENTS_LIST: AgentDisplayInfo[] = [
   { type: 'opencode', name: 'OpenCode / Trae', desc: 'OpenCode terminal development agent' },
   { type: 'hermes', name: 'Hermes', desc: 'Hermes terminal development agent' },
 ];
+
+const AGENTS_BY_TYPE: Record<string, AgentDisplayInfo> =
+  Object.fromEntries(AGENTS_LIST.map(a => [a.type, a]));
+
+/* ── 1agents installed-agent detection (best-effort) ──
+ *
+ * The panel is embedded in the 1agents host, which serves /api/agent/catalog
+ * (same origin, no auth) — the per-host probe of which agent CLIs are actually
+ * installed on PATH. We drive "My Agents" off that detection so the list
+ * mirrors what's installed. cc-switch can only manage providers for the six
+ * app types in CATALOG_TYPE_TO_CCSWITCH; any other installed agent is shown
+ * greyed out with an "in development" badge. When the panel runs standalone
+ * (no 1agents host → the fetch fails) we fall back to the full static list. */
+interface CatalogAgent {
+  type: string; // 1agents agent type, e.g. "claudecode", "antigravity"
+  label: string; // display label, e.g. "Claude Code", "Antigravity"
+  installed: boolean;
+}
+
+// 1agents agent type → cc-switch app_type, for the six apps cc-switch manages.
+const CATALOG_TYPE_TO_CCSWITCH: Record<string, string> = {
+  claudecode: 'claude',
+  codex: 'codex',
+  gemini: 'gemini',
+  opencode: 'opencode',
+  hermes: 'hermes',
+  openclaw: 'openclaw',
+};
+
+interface AgentItem extends AgentDisplayInfo {
+  supported: boolean; // true → cc-switch can manage providers (interactive card)
+}
+
+let catalogCache: CatalogAgent[] | null = null;
+
+async function fetchInstalledAgents(): Promise<CatalogAgent[] | null> {
+  if (catalogCache) return catalogCache;
+  try {
+    const res = await fetch('/api/agent/catalog', { headers: { Accept: 'application/json' } });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!Array.isArray(data)) return null;
+    catalogCache = data as CatalogAgent[];
+    return catalogCache;
+  } catch {
+    return null;
+  }
+}
+
+// Build the rendered agent list. With detection available, list installed
+// agents (cc-switch-supported first); without it, fall back to the full
+// static set, all treated as supported (legacy standalone behaviour).
+function buildAgentItems(catalog: CatalogAgent[] | null): AgentItem[] {
+  if (!catalog) return AGENTS_LIST.map(a => ({ ...a, supported: true }));
+
+  const items: AgentItem[] = catalog
+    .filter(a => a.installed)
+    .map(a => {
+      const ccType = CATALOG_TYPE_TO_CCSWITCH[a.type];
+      if (ccType) {
+        const meta = AGENTS_BY_TYPE[ccType];
+        return { type: ccType, name: meta?.name || a.label, desc: meta?.desc || '', supported: true };
+      }
+      return { type: a.type, name: a.label, desc: '', supported: false };
+    });
+
+  return items.sort((x, y) => Number(y.supported) - Number(x.supported));
+}
 
 function extractModelFromConfig(appType: string, val?: string): string {
   if (!val) return '';
@@ -1149,11 +1217,32 @@ function AgentGrid({
   t,
   lang,
 }: AgentGridProps) {
-  if (loading && ccProviders.length === 0) return <p className="text-sm text-gray-400">{t('common.loading')}</p>;
+  const [catalog, setCatalog] = useState<CatalogAgent[] | null>(null);
+  const [catalogReady, setCatalogReady] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    fetchInstalledAgents().then(c => {
+      if (!alive) return;
+      setCatalog(c);
+      setCatalogReady(true);
+    });
+    return () => { alive = false; };
+  }, []);
+
+  const agentItems = useMemo(() => buildAgentItems(catalog), [catalog]);
+
+  if (!catalogReady || (loading && ccProviders.length === 0)) {
+    return <p className="text-sm text-gray-400">{t('common.loading')}</p>;
+  }
 
   return (
     <div className="grid gap-6 md:grid-cols-2">
-      {AGENTS_LIST.map(agent => {
+      {agentItems.map(agent => {
+        if (!agent.supported) {
+          return <UnsupportedAgentCard key={agent.type} agent={agent} lang={lang} />;
+        }
+
         const appProviders = ccProviders.filter(p => p.app_type === agent.type);
         const currentProvider = appProviders.find(p => p.is_current);
         const configVal = ccSettings[`common_config_${agent.type}`];
@@ -1175,6 +1264,32 @@ function AgentGrid({
         );
       })}
     </div>
+  );
+}
+
+/* Greyed-out card for an installed agent cc-switch can't manage yet. */
+function UnsupportedAgentCard({ agent, lang }: { agent: AgentItem; lang: string }) {
+  const isChinese = lang.startsWith('zh');
+  return (
+    <Card className="flex flex-col justify-between h-full space-y-4 opacity-60">
+      <div>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Cpu size={18} className="text-gray-400 shrink-0" />
+            <h3 className="font-semibold text-gray-500 dark:text-gray-400 text-base">{agent.name}</h3>
+          </div>
+          <Badge variant="warning">{isChinese ? '迭代中' : 'In development'}</Badge>
+        </div>
+        <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">{agent.type}</p>
+      </div>
+      <div className="pt-3 border-t border-gray-100 dark:border-white/[0.06]">
+        <p className="text-xs text-gray-400 dark:text-gray-500">
+          {isChinese
+            ? 'cc-switch 暂不支持该智能体的供应商切换，敬请期待。'
+            : 'cc-switch does not yet support provider switching for this agent. Coming soon.'}
+        </p>
+      </div>
+    </Card>
   );
 }
 
