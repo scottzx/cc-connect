@@ -72,7 +72,7 @@ _TAGS_FLAG  := $(if $(_BUILD_TAGS),-tags '$(_BUILD_TAGS)',)
 
 web:
 	@if [ ! -d web/node_modules ]; then cd web && npm install; fi
-	cd web && npm run build
+	cd web && npm run build && npm run build:embed
 
 build: web
 	go build $(_TAGS_FLAG) -ldflags "$(LDFLAGS)" -o $(APP) $(CMD)
