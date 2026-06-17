@@ -283,6 +283,11 @@ func main() {
 
 	engines := make([]*core.Engine, 0, len(cfg.Projects))
 	effectiveWorkDirs := make([]string, 0, len(cfg.Projects))
+	// bootedProjects[i] is the project that produced engines[i]. A project that
+	// fails its agent/platform/observe checks below is skipped (continue) and
+	// never appended, so downstream registration must index this slice — never
+	// cfg.Projects, whose indices no longer line up with engines after a skip.
+	bootedProjects := make([]config.ProjectConfig, 0, len(cfg.Projects))
 
 	for _, proj := range cfg.Projects {
 		// Inject project-level run_as_user / run_as_env into the agent's
@@ -299,8 +304,10 @@ func main() {
 		}
 		agent, err := core.CreateAgent(proj.Agent.Type, buildAgentOptions(cfg.DataDir, proj))
 		if err != nil {
+			// One misconfigured project (e.g. acp without "command") must not take
+			// the whole daemon down — skip it and keep loading the rest.
 			slog.Error("failed to create agent", "project", proj.Name, "error", err)
-			os.Exit(1)
+			continue
 		}
 
 		providerWiring := wireAgentProviders(agent, proj.Agent)
@@ -316,7 +323,7 @@ func main() {
 			p, err := core.CreatePlatform(pc.Type, opts)
 			if err != nil {
 				slog.Error("failed to create platform", "project", proj.Name, "type", pc.Type, "error", err)
-				os.Exit(1)
+				continue
 			}
 			platforms = append(platforms, p)
 		}
@@ -410,8 +417,8 @@ func main() {
 		}
 		if observeEnabled {
 			if obsChan == "" {
-				slog.Error("observe: channel is required (use --observe-channel or set channel in [projects.observe])")
-				os.Exit(1)
+				slog.Error("observe: channel is required (use --observe-channel or set channel in [projects.observe])", "project", proj.Name)
+				continue
 			}
 			hasSlack := false
 			for _, p := range platforms {
@@ -878,6 +885,7 @@ func main() {
 
 		engines = append(engines, engine)
 		effectiveWorkDirs = append(effectiveWorkDirs, effectiveWorkDir)
+		bootedProjects = append(bootedProjects, proj)
 	}
 
 	// Start cron scheduler
@@ -895,7 +903,7 @@ func main() {
 			cronSched.SetDefaultSessionMode(cfg.Cron.SessionMode)
 		}
 		for i, e := range engines {
-			cronSched.RegisterEngine(cfg.Projects[i].Name, e)
+			cronSched.RegisterEngine(bootedProjects[i].Name, e)
 			e.SetCronScheduler(cronSched)
 		}
 	}
@@ -915,14 +923,15 @@ func main() {
 			timerSched.SetDefaultSessionMode(cfg.Cron.SessionMode)
 		}
 		for i, e := range engines {
-			timerSched.RegisterEngine(cfg.Projects[i].Name, e)
+			timerSched.RegisterEngine(bootedProjects[i].Name, e)
 			e.SetTimerScheduler(timerSched)
 		}
 	}
 
 	// Start heartbeat scheduler
 	heartbeatSched := core.NewHeartbeatScheduler(cfg.DataDir)
-	for i, proj := range cfg.Projects {
+	for i := range engines {
+		proj := bootedProjects[i]
 		hbCfg := buildHeartbeatConfig(proj.Heartbeat)
 		if hbCfg.Enabled {
 			heartbeatSched.Register(proj.Name, hbCfg, engines[i], effectiveWorkDirs[i])
@@ -980,8 +989,8 @@ func main() {
 			os.Exit(1)
 		}
 		for i, e := range engines {
-			bp := bridgeSrv.NewPlatform(cfg.Projects[i].Name)
-			bridgeSrv.RegisterEngine(cfg.Projects[i].Name, e, bp)
+			bp := bridgeSrv.NewPlatform(bootedProjects[i].Name)
+			bridgeSrv.RegisterEngine(bootedProjects[i].Name, e, bp)
 			e.AddPlatform(bp)
 		}
 		bridgeSrv.Start()
@@ -1000,7 +1009,7 @@ func main() {
 		}
 		webhookSrv = core.NewWebhookServer(port, cfg.Webhook.Token, path)
 		for i, e := range engines {
-			webhookSrv.RegisterEngine(cfg.Projects[i].Name, e)
+			webhookSrv.RegisterEngine(bootedProjects[i].Name, e)
 		}
 		webhookSrv.Start()
 	}
@@ -1014,7 +1023,7 @@ func main() {
 		}
 		mgmtSrv = core.NewManagementServer(port, cfg.Management.Token, cfg.Management.CORSOrigins)
 		for i, e := range engines {
-			mgmtSrv.RegisterEngine(cfg.Projects[i].Name, e)
+			mgmtSrv.RegisterEngine(bootedProjects[i].Name, e)
 		}
 		if cronSched != nil {
 			mgmtSrv.SetCronScheduler(cronSched)
@@ -1191,14 +1200,14 @@ func main() {
 		dirHistory := core.NewDirHistory(cfg.DataDir)
 
 		for i, e := range engines {
-			apiSrv.RegisterEngine(cfg.Projects[i].Name, e)
+			apiSrv.RegisterEngine(bootedProjects[i].Name, e)
 			e.SetRelayManager(relayMgr)
 			e.SetDirHistory(dirHistory)
 
 			// Ensure initial work_dir is in history
 			if initWorkDir := effectiveWorkDirs[i]; initWorkDir != "" {
-				if !dirHistory.Contains(cfg.Projects[i].Name, initWorkDir) {
-					dirHistory.Add(cfg.Projects[i].Name, initWorkDir)
+				if !dirHistory.Contains(bootedProjects[i].Name, initWorkDir) {
+					dirHistory.Add(bootedProjects[i].Name, initWorkDir)
 				}
 			}
 		}

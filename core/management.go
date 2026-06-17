@@ -32,6 +32,18 @@ type ProjectSettingsUpdate struct {
 	PlatformAllowFrom    map[string]string
 }
 
+// CreatableAgentInfo describes an agent type that the host has verified is
+// actually creatable (installed/drivable). It is supplied by the host via
+// SetListAgents so the management API can offer only valid options instead of
+// the raw plugin registry, which includes types needing extra required config.
+// Kept dependency-free so core stays stdlib-only.
+type CreatableAgentInfo struct {
+	Type        string `json:"type"`
+	Label       string `json:"label"`
+	CcTransport string `json:"cc_transport"`
+	Command     string `json:"command,omitempty"`
+}
+
 // ManagementServer provides an HTTP REST API for external management tools
 // (web dashboards, TUI clients, GUI desktop apps, Mac tray apps, etc.).
 type ManagementServer struct {
@@ -59,6 +71,9 @@ type ManagementServer struct {
 	configFilePath       string
 	getGlobalSettings    func() map[string]any
 	saveGlobalSettings   func(map[string]any) error
+	// listAgents, when set, supplies the host-verified creatable agent list
+	// served by GET /agents (overriding the raw plugin registry).
+	listAgents func() []CreatableAgentInfo
 
 	// Global provider callbacks (set by cmd/cc-connect)
 	listGlobalProviders  func() ([]GlobalProviderInfo, error)
@@ -135,6 +150,12 @@ func (m *ManagementServer) SetSaveGlobalSettings(fn func(map[string]any) error) 
 	m.saveGlobalSettings = fn
 }
 
+// SetListAgents installs the host-verified creatable-agent provider. When set,
+// GET /agents returns this curated list instead of the raw plugin registry.
+func (m *ManagementServer) SetListAgents(fn func() []CreatableAgentInfo) {
+	m.listAgents = fn
+}
+
 // GlobalProviderInfo is the wire type for global provider CRUD in the management API.
 type GlobalProviderInfo struct {
 	ID         string            `json:"id,omitempty"`
@@ -149,10 +170,10 @@ type GlobalProviderInfo struct {
 		Model string `json:"model"`
 		Alias string `json:"alias,omitempty"`
 	} `json:"models,omitempty"`
-	Endpoints       map[string]string              `json:"endpoints,omitempty"`
-	AgentModels     map[string]string              `json:"agent_models,omitempty"`
-	AgentModelLists map[string][]GlobalModelEntry   `json:"agent_model_lists,omitempty"`
-	Codex           *GlobalCodexConfig              `json:"codex,omitempty"`
+	Endpoints       map[string]string             `json:"endpoints,omitempty"`
+	AgentModels     map[string]string             `json:"agent_models,omitempty"`
+	AgentModelLists map[string][]GlobalModelEntry `json:"agent_model_lists,omitempty"`
+	Codex           *GlobalCodexConfig            `json:"codex,omitempty"`
 }
 
 // GlobalModelEntry is a model entry inside AgentModelLists.
@@ -398,6 +419,24 @@ func mgmtOK(w http.ResponseWriter, msg string) {
 func (m *ManagementServer) handleAgents(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		mgmtError(w, http.StatusMethodNotAllowed, "GET only")
+		return
+	}
+	// Prefer the host-verified creatable list (installed + drivable) so the UI
+	// never offers an agent that would brick the engine on startup. agents stays
+	// a []string for backward compatibility; agentDetails carries transport and
+	// the auto-derived command. Fall back to the raw registry when no host
+	// provider is wired (e.g. standalone cc-connect).
+	if m.listAgents != nil {
+		details := m.listAgents()
+		names := make([]string, 0, len(details))
+		for _, d := range details {
+			names = append(names, d.Type)
+		}
+		mgmtJSON(w, http.StatusOK, map[string]any{
+			"agents":       names,
+			"agentDetails": details,
+			"platforms":    ListRegisteredPlatforms(),
+		})
 		return
 	}
 	mgmtJSON(w, http.StatusOK, map[string]any{
@@ -1996,10 +2035,10 @@ func (m *ManagementServer) handleCCSwitchProviders(w http.ResponseWriter, r *htt
 // applying per-agent-type overrides for base_url, model, and models.
 func resolveGlobalProviderForAgent(g GlobalProviderInfo, agentType string) ProviderConfig {
 	pc := ProviderConfig{
-		Name:   g.Name,
-		APIKey: g.APIKey,
+		Name:    g.Name,
+		APIKey:  g.APIKey,
 		BaseURL: g.BaseURL,
-		Model:  g.Model,
+		Model:   g.Model,
 	}
 	if ep, ok := g.Endpoints[agentType]; ok && ep != "" {
 		pc.BaseURL = ep
