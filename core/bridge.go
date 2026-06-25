@@ -36,7 +36,24 @@ type BridgeServer struct {
 
 	enginesMu sync.RWMutex
 	engines   map[string]*bridgeEngineRef // project name → engine ref
+
+	// cardActionInterceptor lets the embedding host (e.g. the 1agents IDE)
+	// claim card-button callbacks before the engine's built-in prefix
+	// dispatch. It is consulted first in handleCardAction; when it reports
+	// the action as handled the built-in routing is skipped. Optional.
+	interceptMu           sync.RWMutex
+	cardActionInterceptor CardActionInterceptor
 }
+
+// CardActionInterceptor is a host-registered hook invoked for every card
+// button callback received over the bridge, before the built-in
+// perm:/askq:/cmd:/nav: dispatch. It receives the raw action value, the
+// session key, and the originating project. Returning handled=true consumes
+// the action (the built-in dispatch is skipped); a non-nil refresh card is
+// rendered back to the IM in place (same channel as nav: updates). The host
+// uses this to wire IM buttons (e.g. task approve/reject) to its own
+// in-process logic without coupling cc-connect core to the host's domain.
+type CardActionInterceptor func(action, sessionKey, project string) (handled bool, refresh *Card)
 
 type bridgeEngineRef struct {
 	engine   *Engine
@@ -275,6 +292,38 @@ func (bs *BridgeServer) Stop() {
 			slog.Debug("bridge: server shutdown failed", "error", err)
 		}
 	}
+}
+
+// SetCardActionInterceptor registers (or clears, with nil) the host hook
+// consulted before the built-in card-action dispatch. See CardActionInterceptor.
+func (bs *BridgeServer) SetCardActionInterceptor(h CardActionInterceptor) {
+	bs.interceptMu.Lock()
+	bs.cardActionInterceptor = h
+	bs.interceptMu.Unlock()
+}
+
+func (bs *BridgeServer) cardActionInterceptorFunc() CardActionInterceptor {
+	bs.interceptMu.RLock()
+	defer bs.interceptMu.RUnlock()
+	return bs.cardActionInterceptor
+}
+
+// SendCardToProject proactively pushes a card to the given project's active
+// session via its engine. It lets the embedding host deliver an unsolicited
+// card (e.g. a task-status approval prompt) to whichever IM platform the
+// project's session is bound to. sessionKey may be empty to target the
+// project's single active session.
+func (bs *BridgeServer) SendCardToProject(project, sessionKey string, card *Card) error {
+	if card == nil {
+		return fmt.Errorf("bridge: nil card")
+	}
+	bs.enginesMu.RLock()
+	ref := bs.engines[project]
+	bs.enginesMu.RUnlock()
+	if ref == nil {
+		return fmt.Errorf("bridge: unknown project %q", project)
+	}
+	return ref.engine.SendCardToSession(sessionKey, card)
 }
 
 // ConnectedAdapters returns the names of currently connected adapters.
@@ -934,6 +983,28 @@ func (a *bridgeAdapter) handleCardAction(raw json.RawMessage) {
 	ref := a.server.resolveEngine(ca.SessionKey, ca.Project)
 	if ref == nil {
 		return
+	}
+
+	// Host interceptor gets first claim on the action. When it handles the
+	// action we skip the built-in dispatch; a returned card is refreshed
+	// in place over the same channel as nav: updates.
+	if intercept := a.server.cardActionInterceptorFunc(); intercept != nil {
+		if handled, refresh := intercept(ca.Action, ca.SessionKey, ca.Project); handled {
+			if refresh != nil {
+				if a.capabilities["card"] {
+					_ = a.server.sendToAdapter(a.platform, map[string]any{
+						"type":        "card",
+						"session_key": ca.SessionKey,
+						"reply_ctx":   ca.ReplyCtx,
+						"card":        serializeCard(refresh),
+					})
+				} else {
+					rc := newBridgeReplyCtx(a, ca.SessionKey, ca.ReplyCtx)
+					_ = ref.platform.Reply(context.Background(), rc, refresh.RenderText())
+				}
+			}
+			return
+		}
 	}
 
 	// perm: — permission response; convert to a regular message for the engine

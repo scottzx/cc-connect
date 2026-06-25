@@ -57,7 +57,7 @@ func TestHandleSend_AllowsTTSTextOnly(t *testing.T) {
 		replyCtx: "reply-ctx",
 	}
 
-	api := &APIServer{engines: map[string]*Engine{"test": engine}}
+	api := &CCConnectCliServer{engines: map[string]*Engine{"test": engine}}
 	body, err := json.Marshal(SendRequest{
 		Project:    "test",
 		SessionKey: "session-1",
