@@ -249,8 +249,8 @@ type Engine struct {
 	filterExternalSessions bool
 
 	// Shell configuration for /shell, cron exec, hooks, webhook exec
-	shell       string // shell binary path (e.g. "sh", "/bin/zsh")
-	shellFlag   string // shell flag (e.g. "-c", "-Command", "/C")
+	shell        string // shell binary path (e.g. "sh", "/bin/zsh")
+	shellFlag    string // shell flag (e.g. "-c", "-Command", "/C")
 	shellProfile string // prepended to every command (e.g. "source ~/.zshrc;")
 
 	// Multi-workspace mode
@@ -10166,6 +10166,23 @@ func (e *Engine) SendToSessionWithAttachments(sessionKey, message string, images
 			return err
 		}
 	}
+	return nil
+}
+
+// SendCardToSession proactively delivers a structured card to an active
+// session from an external caller (the embedding host). It resolves the
+// session's bound platform and sends via CardSender, degrading to text on
+// platforms without card support. If sessionKey is empty it targets the
+// single active session.
+func (e *Engine) SendCardToSession(sessionKey string, card *Card) error {
+	if card == nil {
+		return fmt.Errorf("card is required")
+	}
+	_, p, replyCtx, err := e.resolveOutboundSessionTarget(sessionKey, false)
+	if err != nil {
+		return err
+	}
+	e.sendWithCard(p, replyCtx, card)
 	return nil
 }
 

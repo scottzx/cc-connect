@@ -553,6 +553,90 @@ func TestBridge_CardNative(t *testing.T) {
 	}
 }
 
+func TestBridge_CardActionInterceptor(t *testing.T) {
+	bs, wsURL := startTestBridge(t, "")
+
+	bp := bs.NewPlatform("test-proj")
+	e := NewEngine("test-proj", &stubAgent{}, []Platform{bp}, "", LangEnglish)
+	bs.RegisterEngine("test-proj", e, bp)
+
+	var gotAction, gotSession, gotProject string
+	bs.SetCardActionInterceptor(func(action, sessionKey, project string) (bool, *Card) {
+		if !strings.HasPrefix(action, "task:") {
+			return false, nil // not ours — fall through to built-in dispatch
+		}
+		gotAction, gotSession, gotProject = action, sessionKey, project
+		return true, NewCard().Title("Approved", "green").Markdown("done").Build()
+	})
+
+	conn := dialWS(t, wsURL, nil)
+	register(t, conn, "withcards", []string{"text", "card"})
+
+	mustWriteJSON(t, conn, map[string]any{
+		"type":        "card_action",
+		"session_key": "withcards:u1:u1",
+		"action":      "task:approve:ws1:t1",
+		"reply_ctx":   "c1",
+		"project":     "test-proj",
+	})
+
+	reply := readMsg(t, conn)
+	if reply["type"] != "card" {
+		t.Fatalf("expected refresh card, got type=%q", reply["type"])
+	}
+	cardData, _ := reply["card"].(map[string]any)
+	header, _ := cardData["header"].(map[string]any)
+	if header["title"] != "Approved" {
+		t.Fatalf("refresh card title = %q, want Approved", header["title"])
+	}
+	if gotAction != "task:approve:ws1:t1" || gotProject != "test-proj" {
+		t.Fatalf("interceptor got action=%q project=%q", gotAction, gotProject)
+	}
+	if gotSession == "" {
+		t.Fatalf("interceptor session key empty")
+	}
+}
+
+func TestBridge_CardActionInterceptorFallThrough(t *testing.T) {
+	bs, wsURL := startTestBridge(t, "")
+
+	bp := bs.NewPlatform("test-proj")
+	e := NewEngine("test-proj", &stubAgent{}, []Platform{bp}, "", LangEnglish)
+	bs.RegisterEngine("test-proj", e, bp)
+
+	called := false
+	bs.SetCardActionInterceptor(func(action, sessionKey, project string) (bool, *Card) {
+		called = true
+		return false, nil // decline — built-in nav dispatch should still run
+	})
+	// A cmd: button the interceptor declines should reach the engine handler.
+	dispatched := make(chan string, 1)
+	bp.handler = func(p Platform, msg *Message) { dispatched <- msg.Content }
+
+	conn := dialWS(t, wsURL, nil)
+	register(t, conn, "withcards", []string{"text", "card"})
+
+	mustWriteJSON(t, conn, map[string]any{
+		"type":        "card_action",
+		"session_key": "withcards:u1:u1",
+		"action":      "cmd:/status",
+		"reply_ctx":   "c1",
+		"project":     "test-proj",
+	})
+
+	select {
+	case content := <-dispatched:
+		if content != "/status" {
+			t.Fatalf("dispatched content = %q, want /status", content)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("declined action was not dispatched to engine handler")
+	}
+	if !called {
+		t.Fatal("interceptor was not consulted")
+	}
+}
+
 func TestBridge_Ping(t *testing.T) {
 	_, wsURL := startTestBridge(t, "")
 	conn := dialWS(t, wsURL, nil)
