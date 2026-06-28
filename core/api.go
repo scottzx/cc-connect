@@ -15,9 +15,14 @@ import (
 	"time"
 )
 
-// CCConnectCliServer exposes a local Unix socket API for external tools (e.g. cron jobs)
+// DefaultMaxAttachmentSize is the default per-attachment size limit (50 MiB)
+// applied by the /send API and `cc-connect send` when max_attachment_size_mb
+// is unset. Exported so cmd/cc-connect can resolve the same default.
+const DefaultMaxAttachmentSize int64 = 50 << 20
+
+// APIServer exposes a local Unix socket API for external tools (e.g. cron jobs)
 // to send messages to active sessions.
-type CCConnectCliServer struct {
+type APIServer struct {
 	socketPath string
 	listener   net.Listener
 	server     *http.Server
@@ -26,23 +31,39 @@ type CCConnectCliServer struct {
 	cron       *CronScheduler
 	timer      *TimerScheduler
 	relay      *RelayManager
-	mu         sync.RWMutex
+	// maxAttachmentBytes caps the raw size of a single attachment accepted by
+	// /send; the request body limit in handleSend is derived from it (base64
+	// expansion + envelope). Defaults to DefaultMaxAttachmentSize.
+	maxAttachmentBytes int64
+	mu                 sync.RWMutex
 }
 
 // SendRequest is the JSON body for POST /send.
+//
+// Audios and Videos are kept separate from Files so the engine can
+// dispatch them to AudioSender / VideoSender (native voice / video
+// bubble) instead of FileSender (generic file download). The fields
+// reuse FileAttachment as the wire format because audio/video clips
+// are byte blobs with a name + mime — the dedicated typing happens at
+// the dispatch layer in engine.go. See cc-connect internal task
+// t-20260615-cqjbk1.
 type SendRequest struct {
 	Project    string            `json:"project"`
 	SessionKey string            `json:"session_key"`
 	Message    string            `json:"message"`
+	WorkDir    string            `json:"work_dir,omitempty"`
+	CWD        string            `json:"cwd,omitempty"`
 	TTSText    string            `json:"tts_text,omitempty"`
 	Images     []ImageAttachment `json:"images,omitempty"`
 	Files      []FileAttachment  `json:"files,omitempty"`
+	Audios     []FileAttachment  `json:"audios,omitempty"`
+	Videos     []FileAttachment  `json:"videos,omitempty"`
 	AtUsers    []string          `json:"at_users,omitempty"`
 	AtAll      bool              `json:"at_all,omitempty"`
 }
 
-// NewCCConnectCliServer creates an API server on a Unix socket.
-func NewCCConnectCliServer(dataDir string) (*CCConnectCliServer, error) {
+// NewAPIServer creates an API server on a Unix socket.
+func NewAPIServer(dataDir string) (*APIServer, error) {
 	sockDir := filepath.Join(dataDir, "run")
 	if err := os.MkdirAll(sockDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create run dir: %w", err)
@@ -61,11 +82,12 @@ func NewCCConnectCliServer(dataDir string) (*CCConnectCliServer, error) {
 		return nil, fmt.Errorf("chmod socket: %w", err)
 	}
 
-	s := &CCConnectCliServer{
-		socketPath: sockPath,
-		listener:   listener,
-		mux:        http.NewServeMux(),
-		engines:    make(map[string]*Engine),
+	s := &APIServer{
+		socketPath:         sockPath,
+		listener:           listener,
+		mux:                http.NewServeMux(),
+		engines:            make(map[string]*Engine),
+		maxAttachmentBytes: DefaultMaxAttachmentSize,
 	}
 	s.mux.HandleFunc("/send", s.handleSend)
 	s.mux.HandleFunc("/sessions", s.handleSessions)
@@ -87,11 +109,11 @@ func NewCCConnectCliServer(dataDir string) (*CCConnectCliServer, error) {
 	return s, nil
 }
 
-func (s *CCConnectCliServer) SocketPath() string {
+func (s *APIServer) SocketPath() string {
 	return s.socketPath
 }
 
-func (s *CCConnectCliServer) RegisterEngine(name string, e *Engine) {
+func (s *APIServer) RegisterEngine(name string, e *Engine) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.engines[name] = e
@@ -100,23 +122,56 @@ func (s *CCConnectCliServer) RegisterEngine(name string, e *Engine) {
 	}
 }
 
-func (s *CCConnectCliServer) SetRelayManager(rm *RelayManager) {
+func (s *APIServer) SetRelayManager(rm *RelayManager) {
 	s.relay = rm
 }
 
-func (s *CCConnectCliServer) RelayManager() *RelayManager {
+func (s *APIServer) RelayManager() *RelayManager {
 	return s.relay
 }
 
-func (s *CCConnectCliServer) SetCronScheduler(cs *CronScheduler) {
+func (s *APIServer) SetCronScheduler(cs *CronScheduler) {
 	s.cron = cs
 }
 
-func (s *CCConnectCliServer) SetTimerScheduler(ts *TimerScheduler) {
+func (s *APIServer) SetTimerScheduler(ts *TimerScheduler) {
 	s.timer = ts
 }
 
-func (s *CCConnectCliServer) Start() {
+// SetMaxAttachmentSize overrides the per-attachment size limit (bytes) used by
+// /send. Non-positive values are ignored so the default is retained. Safe to
+// call at any time, including from the config reload path: it is guarded by
+// s.mu because handleSend reads the limit concurrently.
+func (s *APIServer) SetMaxAttachmentSize(bytes int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if bytes > 0 {
+		s.maxAttachmentBytes = bytes
+	}
+}
+
+// sendBodyEnvelope is the slack added on top of the base64-expanded attachment
+// limit when sizing the /send request body: it covers the JSON envelope (field
+// names, message text, metadata) and a few sub-limit attachments.
+const sendBodyEnvelope int64 = 8 << 20 // 8 MiB
+
+// sendBodyLimit returns the maximum accepted /send request body size in bytes.
+// It is derived from the per-attachment limit to accommodate base64 expansion
+// (~4/3) plus envelope slack, falling back to DefaultMaxAttachmentSize when no
+// limit has been set (e.g. APIServer zero value in tests). Callers in hot paths
+// (handleSend) run concurrently with SetMaxAttachmentSize, so the read is
+// guarded by s.mu.
+func (s *APIServer) sendBodyLimit() int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	limit := s.maxAttachmentBytes
+	if limit <= 0 {
+		limit = DefaultMaxAttachmentSize
+	}
+	return limit*4/3 + sendBodyEnvelope
+}
+
+func (s *APIServer) Start() {
 	s.server = &http.Server{Handler: s.mux}
 	go func() {
 		if err := s.server.Serve(s.listener); err != nil && err != http.ErrServerClosed {
@@ -126,7 +181,7 @@ func (s *CCConnectCliServer) Start() {
 	slog.Info("api server started", "socket", s.socketPath)
 }
 
-func (s *CCConnectCliServer) Stop() {
+func (s *APIServer) Stop() {
 	if s.server != nil {
 		if err := s.server.Close(); err != nil && err != http.ErrServerClosed {
 			slog.Debug("api server close failed", "error", err)
@@ -145,19 +200,24 @@ func apiJSON(w http.ResponseWriter, status int, v any) {
 	}
 }
 
-func (s *CCConnectCliServer) handleSend(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
 	}
 
-	const maxSendBody = 52 << 20 // 52 MB (slightly above max attachment to account for base64 overhead)
+	// Attachments travel base64-encoded inside the JSON body (~4/3 expansion)
+	// plus the request envelope, so size the reader to fit one max-size
+	// attachment with overhead to spare. The previous hard-coded 52 MB cap was
+	// smaller than a single 50 MB attachment after base64 encoding and would
+	// reject valid sends; deriving it from maxAttachmentBytes keeps the body
+	// limit in step with the configured attachment limit.
 	var req SendRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxSendBody)).Decode(&req); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, s.sendBodyLimit())).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if req.Message == "" && strings.TrimSpace(req.TTSText) == "" && len(req.Images) == 0 && len(req.Files) == 0 {
+	if req.Message == "" && strings.TrimSpace(req.TTSText) == "" && len(req.Images) == 0 && len(req.Files) == 0 && len(req.Audios) == 0 && len(req.Videos) == 0 {
 		http.Error(w, "message, tts_text, or attachment is required", http.StatusBadRequest)
 		return
 	}
@@ -188,8 +248,26 @@ func (s *CCConnectCliServer) handleSend(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	workDir := req.WorkDir
+	if workDir == "" {
+		workDir = req.CWD
+	}
 	if req.Message != "" || len(req.Images) > 0 || len(req.Files) > 0 {
-		if err := engine.SendToSessionWithAttachments(req.SessionKey, req.Message, req.Images, req.Files, req.AtUsers, req.AtAll); err != nil {
+		if err := engine.SendToSessionWithOptions(req.SessionKey, req.Message, req.Images, req.Files, SendOptions{WorkDir: workDir, AtUsers: req.AtUsers, AtAll: req.AtAll}); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if len(req.Audios) > 0 {
+		if err := engine.SendAudiosToSession(req.SessionKey, req.Audios); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if len(req.Videos) > 0 {
+		if err := engine.SendVideosToSession(req.SessionKey, req.Videos); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -205,7 +283,7 @@ func (s *CCConnectCliServer) handleSend(w http.ResponseWriter, r *http.Request) 
 	apiJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (s *CCConnectCliServer) handleSessions(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) handleSessions(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -250,7 +328,7 @@ type CronAddRequest struct {
 	TimeoutMins *int   `json:"timeout_mins,omitempty"`
 }
 
-func (s *CCConnectCliServer) handleCronAdd(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) handleCronAdd(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
@@ -338,7 +416,7 @@ func (s *CCConnectCliServer) handleCronAdd(w http.ResponseWriter, r *http.Reques
 	apiJSON(w, http.StatusOK, job)
 }
 
-func (s *CCConnectCliServer) handleCronList(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) handleCronList(w http.ResponseWriter, r *http.Request) {
 	if s.cron == nil {
 		http.Error(w, "cron scheduler not available", http.StatusServiceUnavailable)
 		return
@@ -355,7 +433,7 @@ func (s *CCConnectCliServer) handleCronList(w http.ResponseWriter, r *http.Reque
 	apiJSON(w, http.StatusOK, jobs)
 }
 
-func (s *CCConnectCliServer) handleCronDel(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) handleCronDel(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
@@ -384,7 +462,7 @@ func (s *CCConnectCliServer) handleCronDel(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-func (s *CCConnectCliServer) handleCronExec(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) handleCronExec(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
@@ -421,7 +499,7 @@ func (s *CCConnectCliServer) handleCronExec(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-func (s *CCConnectCliServer) handleCronInfo(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) handleCronInfo(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
 		return
@@ -446,7 +524,7 @@ func (s *CCConnectCliServer) handleCronInfo(w http.ResponseWriter, r *http.Reque
 	apiJSON(w, http.StatusOK, job)
 }
 
-func (s *CCConnectCliServer) handleCronEdit(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) handleCronEdit(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
@@ -506,7 +584,7 @@ type TimerAddRequest struct {
 	TimeoutMins *int   `json:"timeout_mins,omitempty"`
 }
 
-func (s *CCConnectCliServer) handleTimerAdd(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) handleTimerAdd(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
@@ -597,7 +675,7 @@ func (s *CCConnectCliServer) handleTimerAdd(w http.ResponseWriter, r *http.Reque
 	apiJSON(w, http.StatusOK, job)
 }
 
-func (s *CCConnectCliServer) handleTimerList(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) handleTimerList(w http.ResponseWriter, r *http.Request) {
 	if s.timer == nil {
 		http.Error(w, "timer scheduler not available", http.StatusServiceUnavailable)
 		return
@@ -622,7 +700,7 @@ func (s *CCConnectCliServer) handleTimerList(w http.ResponseWriter, r *http.Requ
 	apiJSON(w, http.StatusOK, pending)
 }
 
-func (s *CCConnectCliServer) handleTimerInfo(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) handleTimerInfo(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
 		return
@@ -647,7 +725,7 @@ func (s *CCConnectCliServer) handleTimerInfo(w http.ResponseWriter, r *http.Requ
 	apiJSON(w, http.StatusOK, job)
 }
 
-func (s *CCConnectCliServer) handleTimerDel(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) handleTimerDel(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
@@ -679,7 +757,7 @@ func (s *CCConnectCliServer) handleTimerDel(w http.ResponseWriter, r *http.Reque
 
 // ── Relay API ──────────────────────────────────────────────────
 
-func (s *CCConnectCliServer) handleRelaySend(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) handleRelaySend(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
@@ -708,7 +786,7 @@ func (s *CCConnectCliServer) handleRelaySend(w http.ResponseWriter, r *http.Requ
 	apiJSON(w, http.StatusOK, resp)
 }
 
-func (s *CCConnectCliServer) handleRelayBind(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) handleRelayBind(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
@@ -736,7 +814,7 @@ func (s *CCConnectCliServer) handleRelayBind(w http.ResponseWriter, r *http.Requ
 	apiJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (s *CCConnectCliServer) handleRelayBinding(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) handleRelayBinding(w http.ResponseWriter, r *http.Request) {
 	if s.relay == nil {
 		http.Error(w, "relay not available", http.StatusServiceUnavailable)
 		return

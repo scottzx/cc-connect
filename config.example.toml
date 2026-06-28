@@ -47,6 +47,17 @@
 # 不带附件的 `cc-connect send --message` 不受影响。
 # attachment_send = "on"
 
+# Maximum size of a single attachment (in MiB) for `cc-connect send
+# --file/--image/--audio/--video` and the /send API. Default: 50 (i.e. 50 MiB).
+# Set 0 to keep the default. Raise it to send larger files; the /send request
+# body limit scales with this value to fit base64-encoded attachments.
+# Can also be overridden by the CC_MAX_ATTACHMENT_SIZE_MB env var (same MiB
+# unit; takes precedence over this option when set).
+# `cc-connect send` 单个附件的最大大小（单位 MiB）。默认 50（即 50 MiB），设 0 保持默认。
+# 调大可发送更大文件；/send 请求体上限会随之按 base64 膨胀自动放大。
+# 也可用环境变量 CC_MAX_ATTACHMENT_SIZE_MB 覆盖（同样单位 MiB；设置后优先级高于本配置项）。
+# max_attachment_size_mb = 50
+
 [log]
 level = "info" # debug, info, warn, error
 
@@ -108,6 +119,7 @@ level = "info" # debug, info, warn, error
 # thinking_messages = true  # Show/hide thinking messages (default: true) / 是否显示思考消息（默认 true）
 # thinking_max_len = 300    # Max chars for thinking messages (default: 300) / 思考消息最大字符数（默认 300）
 # tool_max_len = 500        # Max chars for tool use messages (default: 500) / 工具调用消息最大字符数（默认 500）
+# history_max_len = 1000    # Max chars per /history entry (default: 1000; 0 = no truncation) / 每条历史记录最大字符数（默认 1000；0 表示不截断）
 # tool_messages = true      # Show/hide tool progress messages (default: true) / 是否显示工具进度消息（默认 true）
 # show_context_indicator = true  # Show "[ctx: ~N%]" suffix on assistant replies (default: true)
 #                                # 在助手回复末尾显示「[ctx: ~N%]」上下文占用提示（默认 true 显示）
@@ -999,6 +1011,23 @@ app_secret = "your-feishu-app-secret"
 #                           # 进度消息展示风格：legacy（逐条消息）| compact（单消息持续更新）| card（结构化卡片）
 # resolve_mentions = false  # Auto-resolve @name in outgoing messages to Feishu at tags by matching group member names
 #                           # 自动将发出消息中的 @显示名 替换为飞书 at 标签（通过匹配群成员名称）
+# mention_map = { BOT-A = "ou_bot_a_open_id", BOT-B = "ou_bot_b_open_id" }
+#                           # Outbound bot-to-bot @name -> Feishu <at> tag map for triggering notifications.
+#                           # Useful when @name is NOT a group member (e.g. another bot / agent identified by open_id).
+#                           # Takes priority over resolve_mentions group-member matching. Requires resolve_mentions = true.
+#                           # 机器人间 @通知映射表：friendly_name -> open_id。
+#                           # 当 @name 不是群成员（例如另一个机器人 / Agent，只能用 open_id 标识）时使用。
+#                           # 优先级高于 resolve_mentions 的群成员匹配；需同时开启 resolve_mentions = true。
+# image_batch_window_ms = 500  # Coalesce window for consecutive images from the same session (default: 500ms).
+#                              # When the Feishu mobile client sends multiple images, each arrives as a separate
+#                              # event; cc-connect buffers them and dispatches a single multi-image message once
+#                              # no new image arrives within this window. Raise it (e.g. 800–1200ms) if your
+#                              # network or device routinely sends images more than 500ms apart and they still
+#                              # split into multiple agent turns; lower it for snappier single-image responses.
+#                              # 来自同一会话的连续图片消息的合批窗口（默认 500ms）。飞书手机端连续发图时每张
+#                              # 都是独立事件，cc-connect 会在窗口内将它们合并成一条多图消息再分发；如果你的
+#                              # 网络或设备发送间隔超过 500ms 且仍被拆成多轮，可调高（如 800–1200ms）；如果
+#                              # 只是单图发送，希望响应更快，也可以适当调低。
 
 # Lark (International Version) / Lark 国际版
 # Lark now supports WebSocket long-connection too; webhook mode is only needed
@@ -1085,6 +1114,52 @@ app_secret = "your-feishu-app-secret"
 # group_reply_all = false  # If true, respond to ALL group messages without @mention / 设为 true 群聊无需 @ 也响应
 # share_session_in_channel = false  # If true, all users in a group share one agent session / 群聊共享会话
 # enable_reactions = false  # If true, add ⚡ reaction to incoming messages / 设为 true 收到消息时添加 ⚡ 表情
+# progress_style = "compact"  # Progress rendering: legacy | compact (default). Telegram has no rich card UI,
+#                             # so "card" is normalized to "compact". Set "legacy" to disable streaming edits.
+#                             # 进度展示：legacy | compact（默认）。Telegram 不支持富卡片，"card" 会被规整为 "compact"。
+#                             # 设为 "legacy" 可关闭流式 edit。
+
+# Matrix (uncomment to enable / 取消注释以启用)
+# 1. Create an account on your Matrix homeserver (matrix.org or self-hosted)
+#    在 Matrix 服务器上创建账号（matrix.org 或自建服务器）
+# 2. Get an access token via curl (recommended, ensures E2EE works):
+#    curl -XPOST "https://matrix.org/_matrix/client/v3/login" \
+#      -H "Content-Type: application/json" \
+#      -d '{"type":"m.login.password","user":"YOUR_USER","password":"YOUR_PASS","device_id":"CC-CONNECT"}'
+#    通过 curl 获取 access token（推荐，确保 E2EE 正常工作）：
+#    curl -XPOST "https://matrix.org/_matrix/client/v3/login" \
+#      -H "Content-Type: application/json" \
+#      -d '{"type":"m.login.password","user":"你的用户名","password":"你的密码","device_id":"CC-CONNECT"}'
+# Connection: Long polling via /sync (no public URL needed) / 长轮询，无需公网 IP
+
+# [[projects.platforms]]
+# type = "matrix"
+#
+# [projects.platforms.options]
+# homeserver = "https://matrix.org"
+# access_token = "syt_xxx_xxx"
+# user_id = "@bot:matrix.org"            # optional, auto-detected via /whoami / 可选，自动检测
+# allow_from = "*"                        # Matrix user IDs, e.g. "@user:matrix.org,@other:example.com"
+# auto_join = true                        # auto-join room invites (default true) / 自动加入被邀请的房间（默认 true）
+# auto_verify = true                     # auto-accept SAS key verification (default true) / 自动接受 SAS 密钥验证（默认 true）
+# cross_signing_password = ""            # bot account password for cross-signing setup (one-time) / 跨签名初始化密码（一次性）
+#                                       # Or use env var MATRIX_CROSS_SIGNING_PASSWORD (takes precedence) / 也可用环境变量 MATRIX_CROSS_SIGNING_PASSWORD（优先级更高）
+# share_session_in_channel = false        # share one agent session per room / 房间内所有用户共享会话
+# group_reply_all = false                 # respond to all room messages without @mention / 群聊无需 @ 也响应
+# proxy = ""                              # optional HTTP/SOCKS5 proxy / 可选代理
+
+# Webex (Cisco) (uncomment to enable / 取消注释以启用)
+# 1. Create a bot at https://developer.webex.com/my-apps/new/bot
+#    在 https://developer.webex.com/my-apps/new/bot 创建机器人
+# 2. Copy the bot access token below / 复制 access token 到下方
+# Connection: WebSocket — no public URL required / 无需公网地址
+
+# [[projects.platforms]]
+# type = "webex"
+#
+# [projects.platforms.options]
+# token = "YOUR_WEBEX_BOT_ACCESS_TOKEN"   # from developer.webex.com (Bot)
+# allow_from = "you@cisco.com"            # comma-separated email allowlist / 逗号分隔的邮箱白名单
 
 # MAX messenger (uncomment to enable / 取消注释以启用)
 # 1. Create a bot via @MasterBot in MAX, get the access token
@@ -1430,6 +1505,21 @@ app_secret = "your-feishu-app-secret"
 # Optional: specify Codex reasoning effort / 可选：指定 Codex 推理强度
 # reasoning_effort = "high"  # "minimal" | "low" | "medium" | "high" | "xhigh"
 #
+# Optional: project system prompt / 可选：项目系统提示
+# Codex has no native system-prompt flag, so cc-connect injects this as a
+# preamble prepended to your first message of each new session (resumed
+# sessions are not re-injected).
+# Codex 没有原生的系统提示参数，cc-connect 会将其作为前导内容注入到每个新
+# 会话的第一条消息之前（恢复的会话不会重复注入）。
+# system_prompt = "You are a helpful AI assistant that specializes in Python development."
+#
+# Optional: additional project instructions / 可选：追加的项目指令
+# Appended after system_prompt in the same injected preamble. Can be used
+# alone or combined with system_prompt.
+# 追加在 system_prompt 之后，包含在同一段注入的前导内容中。可单独使用，也可与
+# system_prompt 同时使用。
+# append_system_prompt = "Always respond in Chinese and prefer concise answers."
+#
 # # Active provider / 当前激活的 provider
 # # provider = "openai"
 #
@@ -1653,7 +1743,7 @@ app_secret = "your-feishu-app-secret"
 # # Optional: override only if the `devin` binary is at a non-standard path.
 # # Always use an absolute path when running under launchd / systemd where
 # # $PATH is minimal (e.g. ~/.local/bin may not be included).
-# # command = "/Users/me/.local/bin/devin"
+# # cmd = "/Users/me/.local/bin/devin"
 # #
 # # Optional: initial permission mode applied to new sessions via
 # # session/set_mode. Valid ids: normal, ask, plan, accept-edits, bypass.
@@ -1693,7 +1783,7 @@ app_secret = "your-feishu-app-secret"
 #
 # [projects.agent.options]
 # work_dir = "/path/to/project"
-# command = "agent"
+# cmd = "agent"
 # args = ["acp"]
 # auth_method = "cursor_login"
 # display_name = "Cursor ACP"
@@ -1721,7 +1811,7 @@ app_secret = "your-feishu-app-secret"
 #
 # [projects.agent.options]
 # work_dir = "/path/to/project"
-# command = "openclaw"
+# cmd = "openclaw"
 # args = ["acp"]
 # # Remote gateway (use token-file on shared hosts — avoid --token in argv):
 # # args = ["acp", "--url", "wss://gateway-host:18789", "--token-file", "/path/to/gateway.token"]
@@ -1739,7 +1829,7 @@ app_secret = "your-feishu-app-secret"
 #
 # [projects.agent.options]
 # work_dir = "/path/to/project"
-# command = "traecli"
+# cmd = "traecli"
 # args = ["acp", "serve"]
 # display_name = "Trae CLI ACP"
 
@@ -1752,7 +1842,7 @@ app_secret = "your-feishu-app-secret"
 #
 # [projects.agent.options]
 # work_dir = "/path/to/project"
-# command = "coco"
+# cmd = "coco"
 # args = ["acp", "serve"]
 # display_name = "COCO ACP"
 
@@ -1767,10 +1857,10 @@ app_secret = "your-feishu-app-secret"
 #
 # [projects.agent.options]
 # work_dir = "/path/to/project"
-# command = "copilot"
+# cmd = "copilot"
 # args = ["--acp", "--stdio"]
 # display_name = "Copilot ACP"
-# # command = "/absolute/path/to/copilot"   # if not on PATH (see COPILOT_CLI_PATH in GitHub docs)
+# # cmd = "/absolute/path/to/copilot"   # if not on PATH (see COPILOT_CLI_PATH in GitHub docs)
 
 # [[projects.platforms]]
 # type = "telegram"
@@ -1884,7 +1974,7 @@ app_secret = "your-feishu-app-secret"
 # work_dir = "/path/to/code"
 # model = "gpt-4.1"           # or claude-sonnet-4.6, o3-mini, etc.
 # mode = "default"            # "default" or "bypassPermissions" (yolo)
-# cli_path = "copilot"        # CLI binary name or path (default: "copilot")
+# cmd = "copilot"              # CLI binary name or path (default: "copilot")
 #
 # [[projects.platforms]]
 # type = "telegram"
