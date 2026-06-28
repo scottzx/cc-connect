@@ -400,6 +400,11 @@ func main() {
 		providerWiring := wireAgentProviders(agent, proj.Agent)
 
 		var platforms []core.Platform
+		// channelAgents maps a platform's Name() to a channel-level agent
+		// override (config.PlatformConfig.Agent). Only populated when a channel
+		// binds a different agent than the project default; left empty otherwise
+		// so existing single-agent projects behave exactly as before.
+		channelAgents := make(map[string]core.Agent)
 		for _, pc := range proj.Platforms {
 			opts := make(map[string]any, len(pc.Options)+2)
 			for k, v := range pc.Options {
@@ -413,6 +418,22 @@ func main() {
 				continue
 			}
 			platforms = append(platforms, p)
+
+			// Channel-level agent binding: when this channel overrides the
+			// project agent with a different type, build a separate agent
+			// instance so the channel can run concurrently alongside the
+			// project default and other channels.
+			chAgentCfg := config.ResolvePlatformAgent(proj, pc)
+			if pc.Agent == nil || strings.EqualFold(chAgentCfg.Type, proj.Agent.Type) {
+				continue
+			}
+			chAgent, err := core.CreateAgent(chAgentCfg.Type, buildChannelAgentOptions(cfg.DataDir, proj, chAgentCfg))
+			if err != nil {
+				slog.Error("failed to create channel agent", "project", proj.Name, "channel", p.Name(), "agent", chAgentCfg.Type, "error", err)
+				continue
+			}
+			wireAgentProviders(chAgent, chAgentCfg)
+			channelAgents[p.Name()] = chAgent
 		}
 
 		workDir, _ := proj.Agent.Options["work_dir"].(string)
@@ -439,6 +460,10 @@ func main() {
 		}
 
 		engine := core.NewEngine(proj.Name, agent, platforms, sessionFile, lang)
+		for chName, chAgent := range channelAgents {
+			engine.SetChannelAgent(chName, chAgent)
+			slog.Info("channel-level agent bound", "project", proj.Name, "channel", chName, "agent", chAgent.Name())
+		}
 		// Wire display settings including show_context_indicator and reply_footer
 		// Global [display] config can be overridden by project-level settings
 		_, _, _, _, _, showCtx, showFooter := config.EffectiveDisplay(cfg, &proj)
@@ -1863,9 +1888,33 @@ func convertProviderModels(ms []config.ProviderModelConfig) []core.ModelOption {
 }
 
 func buildAgentOptions(dataDir string, proj config.ProjectConfig) map[string]any {
-	opts := make(map[string]any, len(proj.Agent.Options)+2)
-	for k, v := range proj.Agent.Options {
+	return buildChannelAgentOptions(dataDir, proj, proj.Agent)
+}
+
+// buildChannelAgentOptions builds the agent option map for a specific agent
+// config (project default or a channel-level override). It inherits the
+// project's work_dir and run_as_user/run_as_env isolation when the channel
+// agent does not set its own, so a channel agent stays in the same directory
+// and isolation boundary as the project unless explicitly overridden.
+func buildChannelAgentOptions(dataDir string, proj config.ProjectConfig, agentCfg config.AgentConfig) map[string]any {
+	opts := make(map[string]any, len(agentCfg.Options)+4)
+	for k, v := range agentCfg.Options {
 		opts[k] = v
+	}
+	if _, ok := opts["work_dir"]; !ok {
+		if wd, ok := proj.Agent.Options["work_dir"].(string); ok && wd != "" {
+			opts["work_dir"] = wd
+		}
+	}
+	if proj.RunAsUser != "" {
+		if _, ok := opts["run_as_user"]; !ok {
+			opts["run_as_user"] = proj.RunAsUser
+		}
+		if len(proj.RunAsEnv) > 0 {
+			if _, ok := opts["run_as_env"]; !ok {
+				opts["run_as_env"] = proj.RunAsEnv
+			}
+		}
 	}
 	opts["cc_data_dir"] = dataDir
 	opts["cc_project"] = proj.Name
