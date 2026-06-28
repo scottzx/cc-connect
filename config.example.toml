@@ -1029,6 +1029,19 @@ app_secret = "your-feishu-app-secret"
 #                              # 网络或设备发送间隔超过 500ms 且仍被拆成多轮，可调高（如 800–1200ms）；如果
 #                              # 只是单图发送，希望响应更快，也可以适当调低。
 
+# Channel-level agent binding (optional) / 渠道级 agent 绑定（可选）
+# Each channel can bind its own agent type, overriding the project-level
+# [projects.agent]. Channels run concurrently, so the same work_dir can be
+# driven by different agents (e.g. one channel → claudecode, this one → codex).
+# Omit this block to inherit the project agent (legacy behavior; old configs run unchanged).
+# 每个渠道可绑定自己的 agent 类型，覆盖项目级 [projects.agent]。多个渠道可并发，
+# 因此同一 work_dir 可由不同 agent 同时驱动（如一个渠道 → claudecode，本渠道 → codex）。
+# 不写本段则继承项目 agent（旧行为；老配置零改动可跑）。
+# [projects.platforms.agent]
+# type = "codex"
+# [projects.platforms.agent.options]
+# mode = "default"
+
 # Lark (International Version) / Lark 国际版
 # Lark now supports WebSocket long-connection too; webhook mode is only needed
 # when you explicitly configure encrypt_key.

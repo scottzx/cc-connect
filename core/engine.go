@@ -327,8 +327,17 @@ type RateLimitCfg struct {
 
 // Engine routes messages between platforms and the agent for a single project.
 type Engine struct {
-	name                  string
-	agent                 Agent
+	name  string
+	agent Agent
+	// channelAgents binds a per-channel (per-platform) agent override, keyed by
+	// the platform's Name(). When a message arrives on a platform present in
+	// this map, the engine routes it to the bound agent instead of the
+	// project-default `agent`. This lets a single project run different agent
+	// backends concurrently across channels (e.g. Feishu→claudecode +
+	// Telegram→codex on the same work_dir). nil/empty = every channel uses
+	// the project-default agent (legacy behavior). Set once at startup; read
+	// concurrently afterward.
+	channelAgents         map[string]Agent
 	platforms             []Platform
 	sessions              *SessionManager
 	ctx                   context.Context
@@ -743,6 +752,31 @@ func NewEngine(name string, ag Agent, platforms []Platform, sessionStorePath str
 	}
 
 	return e
+}
+
+// SetChannelAgent binds a per-channel agent override keyed by the platform's
+// Name(). Messages arriving on that platform are routed to agent instead of the
+// project-default agent, with their interactive/agent session namespaced by the
+// agent's type so different agents coexist on the same channel/work_dir. Call at
+// startup, before Start(). Passing a nil agent is a no-op.
+func (e *Engine) SetChannelAgent(platformName string, agent Agent) {
+	if agent == nil {
+		return
+	}
+	if e.channelAgents == nil {
+		e.channelAgents = make(map[string]Agent)
+	}
+	e.channelAgents[platformName] = agent
+	e.sessions.InvalidateForAgent(agent.Name())
+}
+
+// channelAgentFor returns the agent bound to the platform p's channel, or nil
+// when no channel-level override is configured for it.
+func (e *Engine) channelAgentFor(p Platform) Agent {
+	if e.channelAgents == nil || p == nil {
+		return nil
+	}
+	return e.channelAgents[p.Name()]
 }
 
 // DefaultWorkspaceIdleTimeout is the default time a workspace can be idle
@@ -2861,10 +2895,23 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 	sessions := e.sessions
 	agent := e.agent
 	interactiveKey := msg.SessionKey
+	// sessionStoreKey is the key used against the SessionManager (conversation
+	// history / agent session ID). It tracks interactiveKey so that a
+	// channel-bound agent does not share a Session with the project-default
+	// agent on the same SessionKey.
+	sessionStoreKey := msg.SessionKey
 	if resolvedWorkspace != "" && wsSessions != nil {
 		sessions = wsSessions
 		agent = wsAgent
 		interactiveKey = resolvedWorkspace + ":" + msg.SessionKey
+	} else if chAgent := e.channelAgentFor(p); chAgent != nil {
+		// Channel-level agent binding (non-multi-workspace). Route to the
+		// channel's bound agent and namespace the interactive/agent session by
+		// the agent type so a different agent on the same channel/work_dir does
+		// not collide with the project-default session.
+		agent = chAgent
+		interactiveKey = "agent:" + chAgent.Name() + ":" + msg.SessionKey
+		sessionStoreKey = interactiveKey
 	}
 
 	if len(msg.Images) == 0 && strings.HasPrefix(content, "/") {
@@ -2920,8 +2967,8 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		return
 	}
 
-	session := sessions.GetOrCreateActive(msg.SessionKey)
-	sessions.UpdateUserMeta(msg.SessionKey, msg.UserName, msg.ChatName)
+	session := sessions.GetOrCreateActive(sessionStoreKey)
+	sessions.UpdateUserMeta(sessionStoreKey, msg.UserName, msg.ChatName)
 	// Ensure an interactiveState entry exists before taking the session lock.
 	// Without this, concurrent messages can observe the session as busy during
 	// startup but still find no state to queue into.
@@ -2980,7 +3027,7 @@ sessionLocked:
 		"session", session.ID,
 	)
 
-	go e.processInteractiveMessageWith(p, msg, session, agent, sessions, interactiveKey, resolvedWorkspace, msg.SessionKey)
+	go e.processInteractiveMessageWith(p, msg, session, agent, sessions, interactiveKey, resolvedWorkspace, sessionStoreKey)
 }
 
 func (e *Engine) maybeAutoResetSessionOnIdle(p Platform, msg *Message, sessions *SessionManager, interactiveKey string, session *Session) *Session {

@@ -591,6 +591,23 @@ type CodexProviderConfig struct {
 type PlatformConfig struct {
 	Type    string         `toml:"type"`
 	Options map[string]any `toml:"options"`
+	// Agent, when set, overrides the project-level [projects.agent] for this
+	// channel only. Each channel (platform) can therefore bind a different
+	// agent type (e.g. one Feishu channel → claudecode, another → codex) and
+	// run concurrently under the same project work_dir. When nil, the channel
+	// inherits ProjectConfig.Agent. Old configs (no [projects.platforms.agent])
+	// run unchanged: every channel inherits the project agent.
+	Agent *AgentConfig `toml:"agent,omitempty"`
+}
+
+// ResolvePlatformAgent returns the effective agent config for a single channel:
+// the channel-level [projects.platforms.agent] override when present, otherwise
+// the project-level [projects.agent] default.
+func ResolvePlatformAgent(proj ProjectConfig, pc PlatformConfig) AgentConfig {
+	if pc.Agent != nil {
+		return *pc.Agent
+	}
+	return proj.Agent
 }
 
 // AliasConfig maps a trigger string to a command (e.g. "帮助" → "/help").
@@ -1029,6 +1046,9 @@ func (c *Config) validateInternal(permissive bool) error {
 			if p.Type == "" {
 				return fmt.Errorf("config: %s.platforms[%d].type is required", prefix, j)
 			}
+			if p.Agent != nil && p.Agent.Type == "" {
+				return fmt.Errorf("config: %s.platforms[%d].agent.type is required when [projects.platforms.agent] is set", prefix, j)
+			}
 		}
 		if proj.Mode == "multi-workspace" {
 			if proj.BaseDir == "" {
@@ -1381,34 +1401,46 @@ func (cfg *Config) ResolveProviderRefs() {
 		globalByName[p.Name] = p
 	}
 	for i := range cfg.Projects {
-		refs := cfg.Projects[i].Agent.ProviderRefs
-		if len(refs) == 0 {
+		resolveAgentProviderRefs(&cfg.Projects[i].Agent, globalByName, cfg.Projects[i].Name)
+		// Channel-level agent overrides may also carry provider_refs.
+		for j := range cfg.Projects[i].Platforms {
+			if cfg.Projects[i].Platforms[j].Agent != nil {
+				resolveAgentProviderRefs(cfg.Projects[i].Platforms[j].Agent, globalByName, cfg.Projects[i].Name)
+			}
+		}
+	}
+}
+
+// resolveAgentProviderRefs merges global providers referenced via provider_refs
+// into one agent's inline provider list, applying per-agent-type overrides.
+func resolveAgentProviderRefs(agent *AgentConfig, globalByName map[string]ProviderConfig, projectName string) {
+	refs := agent.ProviderRefs
+	if len(refs) == 0 {
+		return
+	}
+	agentType := agent.Type
+	inlineNames := make(map[string]bool, len(agent.Providers))
+	for _, p := range agent.Providers {
+		inlineNames[p.Name] = true
+	}
+	var resolved []ProviderConfig
+	for _, name := range refs {
+		if inlineNames[name] {
+			continue // inline override takes precedence
+		}
+		gp, ok := globalByName[name]
+		if !ok {
+			slog.Warn("provider ref not found in global [[providers]]", "project", projectName, "ref", name)
 			continue
 		}
-		agentType := cfg.Projects[i].Agent.Type
-		inlineNames := make(map[string]bool, len(cfg.Projects[i].Agent.Providers))
-		for _, p := range cfg.Projects[i].Agent.Providers {
-			inlineNames[p.Name] = true
+		if len(gp.AgentTypes) > 0 && !containsString(gp.AgentTypes, agentType) {
+			slog.Debug("skipping provider: agent type mismatch", "provider", name, "project", projectName,
+				"provider_agents", gp.AgentTypes, "project_agent", agentType)
+			continue
 		}
-		var resolved []ProviderConfig
-		for _, name := range refs {
-			if inlineNames[name] {
-				continue // inline override takes precedence
-			}
-			gp, ok := globalByName[name]
-			if !ok {
-				slog.Warn("provider ref not found in global [[providers]]", "project", cfg.Projects[i].Name, "ref", name)
-				continue
-			}
-			if len(gp.AgentTypes) > 0 && !containsString(gp.AgentTypes, agentType) {
-				slog.Debug("skipping provider: agent type mismatch", "provider", name, "project", cfg.Projects[i].Name,
-					"provider_agents", gp.AgentTypes, "project_agent", agentType)
-				continue
-			}
-			resolved = append(resolved, gp.ResolveForAgent(agentType))
-		}
-		cfg.Projects[i].Agent.Providers = append(resolved, cfg.Projects[i].Agent.Providers...)
+		resolved = append(resolved, gp.ResolveForAgent(agentType))
 	}
+	agent.Providers = append(resolved, agent.Providers...)
 }
 
 // ResolveForAgent applies per-agent-type overrides (Endpoints, AgentModels,
