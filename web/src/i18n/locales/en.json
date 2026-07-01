@@ -57,7 +57,12 @@
       "providers": "Providers",
       "heartbeat": "Heartbeat",
       "settings": "Settings"
-    }
+    },
+    "channelAgent": "Agent",
+    "channelAgentInherit": "Inherit",
+    "noPlatforms": "No channels yet",
+    "channelConnected": "Connected",
+    "channelDisconnected": "Disconnected / reconnecting"
   },
   "sessions": {
     "title": "Sessions",
@@ -192,7 +197,8 @@
     "optional": "optional",
     "confirmDelete": "Are you sure you want to delete this?",
     "close": "Close",
-    "saving": "Saving…"
+    "saving": "Saving…",
+    "done": "Done"
   },
   "setup": {
     "addPlatform": "Add platform",
@@ -227,7 +233,8 @@
     "manualSetup": "Manual setup",
     "manualHint": "For {{platform}}, please configure credentials in config.toml and restart the service.",
     "advancedOptions": "Advanced options",
-    "unsupportedPlatform": "Unsupported platform type: {{type}}"
+    "unsupportedPlatform": "Unsupported platform type: {{type}}",
+    "applying": "Applying… (available after the service auto-restarts)"
   },
   "fields": {
     "botToken": "Bot Token",

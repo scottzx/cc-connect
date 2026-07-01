@@ -2364,6 +2364,17 @@ func (e *Engine) onPlatformReady(p Platform) {
 	e.initPlatformCapabilities(p)
 }
 
+// PlatformReady reports whether platform instance p is currently ready
+// (its long connection is up). For async platforms this flips false on
+// disconnect and true again on reconnect, so callers (e.g. the management
+// project detail) can render a live connection indicator instead of a static
+// "connected". A platform that failed to start is never marked ready.
+func (e *Engine) PlatformReady(p Platform) bool {
+	e.platformLifecycleMu.Lock()
+	defer e.platformLifecycleMu.Unlock()
+	return e.platformReady[p]
+}
+
 func (e *Engine) markPlatformReady(p Platform) bool {
 	e.platformLifecycleMu.Lock()
 	defer e.platformLifecycleMu.Unlock()

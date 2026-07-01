@@ -83,7 +83,6 @@ export default function ProjectDetail() {
   // Agent for the channel being added ('' = inherit the project default). Lets a
   // new channel bind its own agent up front (e.g. a 2nd Feishu bot → codex).
   const [addPlatAgent, setAddPlatAgent] = useState('');
-  const [showRestartModal, setShowRestartModal] = useState(false);
   const [savingChannel, setSavingChannel] = useState<number | null>(null);
 
   // Delete project
@@ -114,7 +113,12 @@ export default function ProjectDetail() {
     new Promise<void>((resolve) => {
       const start = Date.now();
       const poll = () => {
-        fetch('/api/v1/status')
+        // /api/v1/status requires the management token; a plain fetch returns
+        // 401 forever and the poll never sees a 200 (spinning until timeout with
+        // a flood of 401s). Send the auth header so a recovered service resolves
+        // promptly. During the restart window the proxy returns 502 → treated as
+        // "not ready yet" and retried.
+        fetch('/api/v1/status', authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : undefined)
           .then((r) => { if (r.ok) resolve(); else throw new Error(); })
           .catch(() => {
             if (Date.now() - start > maxMs) { resolve(); return; }
@@ -123,6 +127,18 @@ export default function ProjectDetail() {
       };
       setTimeout(poll, 1500);
     });
+
+  // applyAndRefresh waits for a backend-triggered engine reload to complete,
+  // then refreshes. Channel changes (add/agent) auto-reload on the backend (the
+  // management hooks fire RestartCh), so the UI never asks the user to restart.
+  // The initial delay covers the backend's ~300ms response-flush before it tears
+  // the servers down, so waitForService doesn't return early on the still-up
+  // pre-reload service.
+  const applyAndRefresh = async () => {
+    await new Promise((r) => setTimeout(r, 800));
+    await waitForService(8000);
+    await fetchAll();
+  };
 
   const fetchAll = useCallback(async () => {
     if (!name) return;
@@ -184,9 +200,10 @@ export default function ProjectDetail() {
     if (!name || index < 0) return;
     setSavingChannel(index);
     try {
+      // Backend rebinds the channel agent and hot-reloads the engine
+      // (SetChannelAgentBinding fires RestartCh); just wait it out + refresh.
       await setChannelAgent(name, index, agent);
-      await fetchAll();
-      setShowRestartModal(true);
+      await applyAndRefresh();
     } catch (e) {
       console.error('set channel agent failed', e);
     } finally {
@@ -213,7 +230,10 @@ export default function ProjectDetail() {
         platform_allow_from: platformAllowFrom,
       });
       if (res && (res as any).restart_required) {
-        setShowRestartModal(true);
+        // Settings that need a rebuild (agent type / work_dir / mode): auto
+        // restart without asking, then refresh.
+        await restartSystem();
+        await applyAndRefresh();
         return;
       }
       await fetchAll();
@@ -314,9 +334,20 @@ export default function ProjectDetail() {
                   key={`${p.type}-${p.index ?? i}`}
                   className="flex items-center justify-between gap-2 rounded-lg border border-gray-100 dark:border-gray-800 px-2.5 py-1.5"
                 >
-                  <Badge variant={p.connected ? 'success' : 'danger'}>
-                    <Plug size={12} className="mr-1" /> {p.type} {p.connected ? '✓' : '✗'}
-                  </Badge>
+                  <div className="flex items-center gap-2 min-w-0">
+                    {/* Live connection indicator: green = long connection up,
+                        gray = down/reconnecting (reflects the engine's real
+                        per-platform ready state). */}
+                    <span
+                      title={p.connected ? t('projects.channelConnected', 'Connected') : t('projects.channelDisconnected', 'Disconnected')}
+                      className={cn(
+                        'inline-block w-2 h-2 rounded-full shrink-0',
+                        p.connected ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600',
+                      )}
+                    />
+                    <Plug size={12} className="text-gray-400 shrink-0" />
+                    <span className="text-sm text-gray-900 dark:text-white truncate">{p.type}</span>
+                  </div>
                   <div className="flex items-center gap-1.5">
                     <span className="text-[11px] text-gray-400">{t('projects.channelAgent', 'Agent')}</span>
                     <select
@@ -750,9 +781,9 @@ export default function ProjectDetail() {
                 platformType={addPlatType as 'feishu' | 'weixin'}
                 projectName={name!}
                 agentType={addPlatAgent || undefined}
-                onComplete={() => {
+                onComplete={async () => {
                   setShowAddPlatform(false);
-                  setShowRestartModal(true);
+                  await applyAndRefresh();
                 }}
                 onCancel={() => setAddPlatType('')}
               />
@@ -761,9 +792,9 @@ export default function ProjectDetail() {
                 platformType={addPlatType}
                 projectName={name!}
                 agentType={addPlatAgent || undefined}
-                onComplete={() => {
+                onComplete={async () => {
                   setShowAddPlatform(false);
-                  setShowRestartModal(true);
+                  await applyAndRefresh();
                 }}
                 onCancel={() => setAddPlatType('')}
               />
@@ -777,23 +808,6 @@ export default function ProjectDetail() {
             )}
           </div>
         )}
-      </Modal>
-
-      {/* Restart Required Modal */}
-      <Modal open={showRestartModal} onClose={() => setShowRestartModal(false)} title={t('setup.restartRequired', 'Restart required')}>
-        <div className="space-y-4 py-2">
-          <p className="text-sm text-gray-600 dark:text-gray-400">
-            {t('setup.restartHint', 'Restart the service for the new platform to take effect.')}
-          </p>
-          <div className="flex justify-end gap-2">
-            <Button variant="secondary" onClick={() => { setShowRestartModal(false); setTimeout(fetchAll, 300); }}>
-              {t('setup.later', 'Later')}
-            </Button>
-            <Button onClick={async () => { await restartSystem(); setShowRestartModal(false); await waitForService(8000); await fetchAll(); }}>
-              {t('setup.restartNow', 'Restart now')}
-            </Button>
-          </div>
-        </div>
       </Modal>
     </div>
   );

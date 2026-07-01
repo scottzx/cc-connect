@@ -1,13 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { QRCodeSVG } from 'qrcode.react';
-import { Loader2, CheckCircle2, XCircle, RefreshCw, Smartphone, RotateCcw } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, RefreshCw, Smartphone } from 'lucide-react';
 import { Button } from '@/components/ui';
 import {
   setupFeishuBegin, setupFeishuPoll, setupFeishuSave,
   setupWeixinBegin, setupWeixinPoll, setupWeixinSave,
 } from '@/api/setup';
-import { restartSystem } from '@/api/status';
 
 type PlatformKind = 'feishu' | 'lark' | 'weixin';
 type Phase = 'idle' | 'loading' | 'scanning' | 'scanned' | 'completed' | 'expired' | 'denied' | 'error' | 'saving';
@@ -256,25 +255,11 @@ export default function PlatformSetupQR({ platformType, projectName, workDir, ag
             {t('setup.completed', 'Platform connected successfully!')}
           </p>
           <p className="text-xs text-gray-500 text-center">
-            {t('setup.restartHint', 'Restart the service for the new platform to take effect.')}
+            {t('setup.applying', 'Applying… the channel takes effect automatically.')}
           </p>
-          <div className="flex gap-2">
-            <Button
-              variant="secondary"
-              onClick={async () => {
-                try {
-                  await restartSystem();
-                  setPhase('restarting' as Phase);
-                  setTimeout(() => onComplete(), 3000);
-                } catch (e: any) {
-                  setError(e?.message || String(e));
-                }
-              }}
-            >
-              <RotateCcw size={14} /> {t('setup.restartNow', 'Restart Now')}
-            </Button>
-            <Button onClick={onComplete}>{t('setup.later', 'Later')}</Button>
-          </div>
+          {/* No restart prompt: the backend hot-reloads the engine after saving
+              credentials; the caller (ProjectDetail.onComplete) waits + refreshes. */}
+          <Button onClick={onComplete}>{t('common.done', 'Done')}</Button>
         </div>
       )}
 

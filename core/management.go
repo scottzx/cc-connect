@@ -729,7 +729,7 @@ func (m *ManagementServer) handleProjectDetail(w http.ResponseWriter, r *http.Re
 			}
 			platInfos = append(platInfos, map[string]any{
 				"type":      p.Name(),
-				"connected": true,
+				"connected": e.PlatformReady(p),
 				"index":     i,
 				"agent":     agentName,
 				"inherited": inherited,
