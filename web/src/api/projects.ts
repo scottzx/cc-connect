@@ -24,7 +24,10 @@ export interface ProjectDetail {
   inject_sender?: boolean;
   provider_refs?: string[];
   platform_configs?: PlatformConfigInfo[];
-  platforms: { type: string; connected: boolean }[];
+  // Each channel carries its effective agent: the per-channel override when
+  // bound (inherited=false), else the project default. index addresses the
+  // channel for setChannelAgent (two same-type channels are distinct by index).
+  platforms: { type: string; connected: boolean; index?: number; agent?: string; inherited?: boolean }[];
   sessions_count: number;
   active_session_keys: string[];
   heartbeat: {
@@ -66,3 +69,9 @@ export const addPlatformToProject = (projectName: string, body: {
 
 export const deleteProject = (name: string) =>
   api.delete<{ message: string; restart_required: boolean }>(`/projects/${name}`);
+
+// setChannelAgent (re)binds one channel's agent by index. An empty agent clears
+// the override so the channel re-inherits the project default. Lets two channels
+// of the same type (e.g. two Feishu bots) each run a different agent.
+export const setChannelAgent = (projectName: string, index: number, agent: string) =>
+  api.post<{ message: string; restart_required: boolean }>(`/projects/${projectName}/platform-agent`, { index, agent });

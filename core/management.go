@@ -64,7 +64,12 @@ type ManagementServer struct {
 	setupFeishuSave      func(req FeishuSetupSaveRequest) error
 	setupWeixinSave      func(req WeixinSetupSaveRequest) error
 	addPlatformToProject func(projectName, platType string, opts map[string]any, workDir, agentType string) error
-	removeProject        func(projectName string) error
+	// setChannelAgent binds (or clears, when agentType is empty) the per-channel
+	// agent override for one platform of a project, by its index. Lets each
+	// channel under one project run a different agent (e.g. two Feishu bots →
+	// claudecode + codex). Injected by the host; nil disables the endpoint.
+	setChannelAgent func(projectName string, channelIndex int, agentType string) error
+	removeProject   func(projectName string) error
 	saveProjectSettings  func(projectName string, update ProjectSettingsUpdate) error
 	getProjectConfig     func(projectName string) map[string]any
 	saveProviderRefs     func(projectName string, refs []string) error
@@ -120,6 +125,11 @@ func (m *ManagementServer) SetSetupWeixinSave(fn func(WeixinSetupSaveRequest) er
 
 func (m *ManagementServer) SetAddPlatformToProject(fn func(string, string, map[string]any, string, string) error) {
 	m.addPlatformToProject = fn
+}
+
+// SetSetChannelAgent injects the per-channel agent binder (see setChannelAgent).
+func (m *ManagementServer) SetSetChannelAgent(fn func(projectName string, channelIndex int, agentType string) error) {
+	m.setChannelAgent = fn
 }
 
 func (m *ManagementServer) SetRemoveProject(fn func(string) error) {
@@ -656,6 +666,11 @@ func (m *ManagementServer) handleProjectRoutes(w http.ResponseWriter, r *http.Re
 		m.handleProjectAddPlatform(w, r, projName)
 		return
 	}
+	// platform-agent (re)binds a channel's agent; config-only, no engine needed.
+	if sub == "platform-agent" {
+		m.handleProjectSetChannelAgent(w, r, projName)
+		return
+	}
 
 	m.mu.RLock()
 	engine, ok := m.engines[projName]
@@ -691,12 +706,34 @@ func (m *ManagementServer) handleProjectRoutes(w http.ResponseWriter, r *http.Re
 
 func (m *ManagementServer) handleProjectDetail(w http.ResponseWriter, r *http.Request, name string, e *Engine) {
 	if r.Method == http.MethodGet {
-		platInfos := make([]map[string]any, len(e.platforms))
+		platInfos := make([]map[string]any, 0, len(e.platforms))
 		for i, p := range e.platforms {
-			platInfos[i] = map[string]any{
+			// Hide the internal "bridge" transport (the 1agents↔cc-connect web
+			// channel): it isn't a user-facing messaging channel, and a project
+			// carries both a config placeholder bridge and the injected real one,
+			// which would show as two "bridge" rows. The index stays the engine
+			// index, which for non-bridge platforms equals the config index that
+			// the per-channel-agent write API addresses.
+			if p.Name() == "bridge" {
+				continue
+			}
+			// Per-channel effective agent: the channel-level override when bound,
+			// else the project default (inherited). Lets the Web UI show + edit
+			// each channel's agent, including two same-type channels (e.g. two
+			// Feishu bots) that carry different agents.
+			agentName := e.agent.Name()
+			inherited := true
+			if ch := e.channelAgentFor(p); ch != nil {
+				agentName = ch.Name()
+				inherited = false
+			}
+			platInfos = append(platInfos, map[string]any{
 				"type":      p.Name(),
 				"connected": true,
-			}
+				"index":     i,
+				"agent":     agentName,
+				"inherited": inherited,
+			})
 		}
 
 		allSessions := e.sessions.AllSessions()

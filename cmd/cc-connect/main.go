@@ -404,7 +404,7 @@ func main() {
 		// override (config.PlatformConfig.Agent). Only populated when a channel
 		// binds a different agent than the project default; left empty otherwise
 		// so existing single-agent projects behave exactly as before.
-		channelAgents := make(map[string]core.Agent)
+		channelAgents := make(map[core.Platform]core.Agent)
 		for _, pc := range proj.Platforms {
 			opts := make(map[string]any, len(pc.Options)+2)
 			for k, v := range pc.Options {
@@ -433,7 +433,7 @@ func main() {
 				continue
 			}
 			wireAgentProviders(chAgent, chAgentCfg)
-			channelAgents[p.Name()] = chAgent
+			channelAgents[p] = chAgent
 		}
 
 		workDir, _ := proj.Agent.Options["work_dir"].(string)
@@ -460,9 +460,9 @@ func main() {
 		}
 
 		engine := core.NewEngine(proj.Name, agent, platforms, sessionFile, lang)
-		for chName, chAgent := range channelAgents {
-			engine.SetChannelAgent(chName, chAgent)
-			slog.Info("channel-level agent bound", "project", proj.Name, "channel", chName, "agent", chAgent.Name())
+		for p, chAgent := range channelAgents {
+			engine.SetChannelAgent(p, chAgent)
+			slog.Info("channel-level agent bound", "project", proj.Name, "channel", p.Name(), "agent", chAgent.Name())
 		}
 		// Wire display settings including show_context_indicator and reply_footer
 		// Global [display] config can be overridden by project-level settings

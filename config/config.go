@@ -3382,6 +3382,17 @@ func AddPlatformToProject(projectName string, platform PlatformConfig, workDir, 
 	}
 	for i := range cfg.Projects {
 		if cfg.Projects[i].Name == projectName {
+			// Bind a per-channel agent override when an explicit agentType is
+			// given that differs from the project default, so channels under one
+			// project can run different agents (e.g. two Feishu bots → one
+			// claudecode, one codex). Same/empty type inherits the project agent.
+			if at := strings.TrimSpace(agentType); at != "" && !strings.EqualFold(at, cfg.Projects[i].Agent.Type) {
+				opts := map[string]any{}
+				if wd, ok := cfg.Projects[i].Agent.Options["work_dir"].(string); ok && wd != "" {
+					opts["work_dir"] = wd
+				}
+				platform.Agent = &AgentConfig{Type: at, Options: opts}
+			}
 			exists := false
 			for _, p := range cfg.Projects[i].Platforms {
 				if p.Type == platform.Type && (platform.Type == "bridge" || reflect.DeepEqual(p.Options, platform.Options)) {

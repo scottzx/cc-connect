@@ -489,3 +489,33 @@ func (m *ManagementServer) handleProjectAddPlatform(w http.ResponseWriter, r *ht
 		"restart_required": true,
 	})
 }
+
+// handleProjectSetChannelAgent binds (or clears) the per-channel agent override
+// for one platform of a project, addressed by its index. An empty agent clears
+// the override so the channel re-inherits the project default.
+func (m *ManagementServer) handleProjectSetChannelAgent(w http.ResponseWriter, r *http.Request, projectName string) {
+	if r.Method != http.MethodPost {
+		mgmtError(w, http.StatusMethodNotAllowed, "POST only")
+		return
+	}
+	var req struct {
+		Index int    `json:"index"`
+		Agent string `json:"agent"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		mgmtError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if m.setChannelAgent == nil {
+		mgmtError(w, http.StatusServiceUnavailable, "config persistence not available")
+		return
+	}
+	if err := m.setChannelAgent(projectName, req.Index, req.Agent); err != nil {
+		mgmtError(w, http.StatusInternalServerError, "set channel agent: "+err.Error())
+		return
+	}
+	mgmtJSON(w, http.StatusOK, map[string]any{
+		"message":          fmt.Sprintf("channel %d agent set to %q for project %q", req.Index, req.Agent, projectName),
+		"restart_required": true,
+	})
+}

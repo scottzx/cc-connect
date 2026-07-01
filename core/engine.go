@@ -329,15 +329,15 @@ type RateLimitCfg struct {
 type Engine struct {
 	name  string
 	agent Agent
-	// channelAgents binds a per-channel (per-platform) agent override, keyed by
-	// the platform's Name(). When a message arrives on a platform present in
-	// this map, the engine routes it to the bound agent instead of the
-	// project-default `agent`. This lets a single project run different agent
-	// backends concurrently across channels (e.g. Feishu→claudecode +
-	// Telegram→codex on the same work_dir). nil/empty = every channel uses
-	// the project-default agent (legacy behavior). Set once at startup; read
-	// concurrently afterward.
-	channelAgents         map[string]Agent
+	// channelAgents binds a per-channel agent override, keyed by the platform
+	// INSTANCE. When a message arrives on a platform present in this map, the
+	// engine routes it to the bound agent instead of the project-default
+	// `agent`. Keying by instance (not type name) lets a project run different
+	// agents across channels — including two channels of the SAME type, e.g.
+	// two Feishu bots → claudecode + codex on the same work_dir. nil/empty =
+	// every channel uses the project-default agent (legacy behavior). Set once
+	// at startup; read concurrently afterward.
+	channelAgents         map[Platform]Agent
 	platforms             []Platform
 	sessions              *SessionManager
 	ctx                   context.Context
@@ -754,29 +754,32 @@ func NewEngine(name string, ag Agent, platforms []Platform, sessionStorePath str
 	return e
 }
 
-// SetChannelAgent binds a per-channel agent override keyed by the platform's
-// Name(). Messages arriving on that platform are routed to agent instead of the
-// project-default agent, with their interactive/agent session namespaced by the
-// agent's type so different agents coexist on the same channel/work_dir. Call at
-// startup, before Start(). Passing a nil agent is a no-op.
-func (e *Engine) SetChannelAgent(platformName string, agent Agent) {
-	if agent == nil {
+// SetChannelAgent binds a per-channel agent override keyed by the platform
+// INSTANCE (not its Name()/type). Messages arriving on that specific platform
+// instance are routed to agent instead of the project-default agent, with their
+// interactive/agent session namespaced by the agent's type so different agents
+// coexist on the same channel/work_dir. Keying by instance (rather than type
+// name) lets two channels of the SAME type — e.g. two Feishu bots — bind
+// different agents; a type-name key would collapse them. Call at startup, before
+// Start(). Passing a nil platform or agent is a no-op.
+func (e *Engine) SetChannelAgent(p Platform, agent Agent) {
+	if p == nil || agent == nil {
 		return
 	}
 	if e.channelAgents == nil {
-		e.channelAgents = make(map[string]Agent)
+		e.channelAgents = make(map[Platform]Agent)
 	}
-	e.channelAgents[platformName] = agent
+	e.channelAgents[p] = agent
 	e.sessions.InvalidateForAgent(agent.Name())
 }
 
-// channelAgentFor returns the agent bound to the platform p's channel, or nil
+// channelAgentFor returns the agent bound to the platform instance p, or nil
 // when no channel-level override is configured for it.
 func (e *Engine) channelAgentFor(p Platform) Agent {
 	if e.channelAgents == nil || p == nil {
 		return nil
 	}
-	return e.channelAgents[p.Name()]
+	return e.channelAgents[p]
 }
 
 // DefaultWorkspaceIdleTimeout is the default time a workspace can be idle

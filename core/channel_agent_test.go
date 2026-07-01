@@ -78,20 +78,42 @@ func waitForEnv(t *testing.T, a *namedRecordingAgent, key string) string {
 	}
 }
 
-func TestSetChannelAgent_RegistersByPlatformName(t *testing.T) {
+func TestSetChannelAgent_RegistersByPlatformInstance(t *testing.T) {
 	def := &namedRecordingAgent{name: "claudecode"}
 	ch := &namedRecordingAgent{name: "codex"}
 	feishu := &stubPlatformEngine{n: "feishu"}
 	telegram := &stubPlatformEngine{n: "telegram"}
 	e := NewEngine("test", def, []Platform{feishu, telegram}, "", LangEnglish)
 
-	e.SetChannelAgent("feishu", ch)
+	e.SetChannelAgent(feishu, ch)
 
 	if got := e.channelAgentFor(feishu); got != Agent(ch) {
 		t.Fatalf("channelAgentFor(feishu) = %v, want channel agent", got)
 	}
 	if got := e.channelAgentFor(telegram); got != nil {
 		t.Fatalf("channelAgentFor(telegram) = %v, want nil (no binding)", got)
+	}
+}
+
+// TestSetChannelAgent_SameTypeInstances is the two-Feishu-bots regression: two
+// platforms of the SAME type (Name()=="feishu") must bind DIFFERENT agents.
+// Keying by Name() would collapse them; keying by instance keeps them distinct.
+func TestSetChannelAgent_SameTypeInstances(t *testing.T) {
+	def := &namedRecordingAgent{name: "claudecode"}
+	claude := &namedRecordingAgent{name: "claudecode"}
+	codex := &namedRecordingAgent{name: "codex"}
+	botA := &stubPlatformEngine{n: "feishu"}
+	botB := &stubPlatformEngine{n: "feishu"}
+	e := NewEngine("test", def, []Platform{botA, botB}, "", LangEnglish)
+
+	e.SetChannelAgent(botA, claude)
+	e.SetChannelAgent(botB, codex)
+
+	if got := e.channelAgentFor(botA); got != Agent(claude) {
+		t.Fatalf("channelAgentFor(botA) = %v, want claude", got)
+	}
+	if got := e.channelAgentFor(botB); got != Agent(codex) {
+		t.Fatalf("channelAgentFor(botB) = %v, want codex", got)
 	}
 }
 
@@ -105,7 +127,7 @@ func TestHandleMessage_ChannelAgentRouting(t *testing.T) {
 	feishu := &stubPlatformEngine{n: "feishu"}
 	telegram := &stubPlatformEngine{n: "telegram"}
 	e := NewEngine("test", def, []Platform{feishu, telegram}, "", LangEnglish)
-	e.SetChannelAgent("feishu", ch)
+	e.SetChannelAgent(feishu, ch)
 
 	// Message on the bound channel → routes to the channel agent.
 	feishuKey := "feishu:C1:U1"

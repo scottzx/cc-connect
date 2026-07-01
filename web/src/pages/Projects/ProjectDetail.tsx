@@ -6,7 +6,7 @@ import {
   Trash2, Plus, Check, Clock, ExternalLink, Link2,
 } from 'lucide-react';
 import { Card, Badge, Button, Input, Modal, EmptyState } from '@/components/ui';
-import { getProject, updateProject, deleteProject, listAgentTypes, type ProjectDetail as ProjectDetailType } from '@/api/projects';
+import { getProject, updateProject, deleteProject, listAgentTypes, setChannelAgent, type ProjectDetail as ProjectDetailType } from '@/api/projects';
 import { listProviders, addProvider, removeProvider, activateProvider, type Provider, listGlobalProviders, type GlobalProvider, saveProviderRefs } from '@/api/providers';
 import { getHeartbeat, pauseHeartbeat, resumeHeartbeat, triggerHeartbeat, setHeartbeatInterval, type HeartbeatStatus } from '@/api/heartbeat';
 import { restartSystem } from '@/api/status';
@@ -80,7 +80,11 @@ export default function ProjectDetail() {
   // Add platform
   const [showAddPlatform, setShowAddPlatform] = useState(false);
   const [addPlatType, setAddPlatType] = useState('');
+  // Agent for the channel being added ('' = inherit the project default). Lets a
+  // new channel bind its own agent up front (e.g. a 2nd Feishu bot → codex).
+  const [addPlatAgent, setAddPlatAgent] = useState('');
   const [showRestartModal, setShowRestartModal] = useState(false);
+  const [savingChannel, setSavingChannel] = useState<number | null>(null);
 
   // Delete project
   const navigate = useNavigate();
@@ -175,6 +179,20 @@ export default function ProjectDetail() {
     window.addEventListener('cc:refresh', handler);
     return () => window.removeEventListener('cc:refresh', handler);
   }, [fetchAll]);
+
+  const handleSetChannelAgent = async (index: number, agent: string) => {
+    if (!name || index < 0) return;
+    setSavingChannel(index);
+    try {
+      await setChannelAgent(name, index, agent);
+      await fetchAll();
+      setShowRestartModal(true);
+    } catch (e) {
+      console.error('set channel agent failed', e);
+    } finally {
+      setSavingChannel(null);
+    }
+  };
 
   const handleSaveSettings = async () => {
     if (!name) return;
@@ -286,16 +304,39 @@ export default function ProjectDetail() {
           <Card>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{t('projects.platforms')}</h3>
-              <Button size="sm" onClick={() => { setShowAddPlatform(true); setAddPlatType(''); }}>
+              <Button size="sm" onClick={() => { setShowAddPlatform(true); setAddPlatType(''); setAddPlatAgent(''); }}>
                 <Plus size={14} /> {t('setup.addPlatform', 'Add platform')}
               </Button>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {project.platforms?.map((p) => (
-                <Badge key={p.type} variant={p.connected ? 'success' : 'danger'}>
-                  <Plug size={12} className="mr-1" /> {p.type} {p.connected ? '✓' : '✗'}
-                </Badge>
+            <div className="space-y-2">
+              {project.platforms?.map((p, i) => (
+                <div
+                  key={`${p.type}-${p.index ?? i}`}
+                  className="flex items-center justify-between gap-2 rounded-lg border border-gray-100 dark:border-gray-800 px-2.5 py-1.5"
+                >
+                  <Badge variant={p.connected ? 'success' : 'danger'}>
+                    <Plug size={12} className="mr-1" /> {p.type} {p.connected ? '✓' : '✗'}
+                  </Badge>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] text-gray-400">{t('projects.channelAgent', 'Agent')}</span>
+                    <select
+                      className="text-xs rounded border border-gray-200 dark:border-gray-700 bg-transparent px-1.5 py-0.5 disabled:opacity-50"
+                      value={p.inherited ? '' : (p.agent || '')}
+                      disabled={savingChannel === p.index}
+                      onChange={(e) => handleSetChannelAgent(p.index ?? -1, e.target.value)}
+                    >
+                      <option value="">{t('projects.channelAgentInherit', 'Inherit')} · {project.agent_type}</option>
+                      {agentTypes.map(a => <option key={a} value={a}>{a}</option>)}
+                      {!p.inherited && p.agent && !agentTypes.includes(p.agent) && (
+                        <option value={p.agent}>{p.agent}</option>
+                      )}
+                    </select>
+                  </div>
+                </div>
               ))}
+              {(!project.platforms || project.platforms.length === 0) && (
+                <p className="text-xs text-gray-400">{t('projects.noPlatforms', 'No channels yet')}</p>
+              )}
             </div>
           </Card>
           <Card>
@@ -688,32 +729,52 @@ export default function ProjectDetail() {
               ))}
             </div>
           </div>
-        ) : isQRPlatform(addPlatType) ? (
-          <PlatformSetupQR
-            platformType={addPlatType as 'feishu' | 'weixin'}
-            projectName={name!}
-            onComplete={() => {
-              setShowAddPlatform(false);
-              setShowRestartModal(true);
-            }}
-            onCancel={() => setAddPlatType('')}
-          />
-        ) : platformMeta[addPlatType] ? (
-          <PlatformManualForm
-            platformType={addPlatType}
-            projectName={name!}
-            onComplete={() => {
-              setShowAddPlatform(false);
-              setShowRestartModal(true);
-            }}
-            onCancel={() => setAddPlatType('')}
-          />
         ) : (
-          <div className="space-y-4 py-4 text-center">
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              {t('setup.manualHint', 'For {{platform}}, please configure credentials in config.toml and restart the service.', { platform: PLATFORM_OPTIONS.find(o => o.key === addPlatType)?.label || addPlatType })}
-            </p>
-            <Button variant="secondary" onClick={() => setAddPlatType('')}>{t('common.back')}</Button>
+          <div className="space-y-3">
+            {/* Per-channel agent for the channel being added. Empty = inherit. */}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                {t('projects.channelAgent', 'Agent')}
+              </label>
+              <select
+                className="w-full text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-transparent px-2 py-1.5"
+                value={addPlatAgent}
+                onChange={(e) => setAddPlatAgent(e.target.value)}
+              >
+                <option value="">{t('projects.channelAgentInherit', 'Inherit')} · {project?.agent_type || ''}</option>
+                {agentTypes.map(a => <option key={a} value={a}>{a}</option>)}
+              </select>
+            </div>
+            {isQRPlatform(addPlatType) ? (
+              <PlatformSetupQR
+                platformType={addPlatType as 'feishu' | 'weixin'}
+                projectName={name!}
+                agentType={addPlatAgent || undefined}
+                onComplete={() => {
+                  setShowAddPlatform(false);
+                  setShowRestartModal(true);
+                }}
+                onCancel={() => setAddPlatType('')}
+              />
+            ) : platformMeta[addPlatType] ? (
+              <PlatformManualForm
+                platformType={addPlatType}
+                projectName={name!}
+                agentType={addPlatAgent || undefined}
+                onComplete={() => {
+                  setShowAddPlatform(false);
+                  setShowRestartModal(true);
+                }}
+                onCancel={() => setAddPlatType('')}
+              />
+            ) : (
+              <div className="space-y-4 py-4 text-center">
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  {t('setup.manualHint', 'For {{platform}}, please configure credentials in config.toml and restart the service.', { platform: PLATFORM_OPTIONS.find(o => o.key === addPlatType)?.label || addPlatType })}
+                </p>
+                <Button variant="secondary" onClick={() => setAddPlatType('')}>{t('common.back')}</Button>
+              </div>
+            )}
           </div>
         )}
       </Modal>
