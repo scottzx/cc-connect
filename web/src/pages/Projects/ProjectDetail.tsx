@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import {
   ArrowLeft, Plug, Heart, Settings, Layers, Zap, Pause, Play,
-  Trash2, Plus, Check, Clock, ExternalLink, Link2,
+  Trash2, Plus, Check, Clock, ExternalLink, Link2, RefreshCw,
 } from 'lucide-react';
 import { Card, Badge, Button, Input, Modal, EmptyState } from '@/components/ui';
 import { getProject, updateProject, deleteProject, listAgentTypes, setChannelAgent, type ProjectDetail as ProjectDetailType } from '@/api/projects';
@@ -285,17 +285,27 @@ export default function ProjectDetail() {
         </div>
 
         {isEmbedded && (
-          <button
-            onClick={() => {
-              const path = location.pathname;
-              const tokenParam = authToken ? `?token=${encodeURIComponent(authToken)}` : '';
-              window.open(`/cc-connect${path}${tokenParam}`, '_blank');
-            }}
-            className="p-1.5 rounded-lg text-gray-500 hover:text-gray-950 dark:text-gray-400 dark:hover:text-white bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-700 shadow-sm shrink-0"
-            title="在新窗口打开"
-          >
-            <ExternalLink size={15} />
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => fetchAll()}
+              className="p-1.5 rounded-lg text-gray-500 hover:text-gray-950 dark:text-gray-400 dark:hover:text-white bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-700 shadow-sm shrink-0"
+              title={t('common.refresh', 'Refresh')}
+              aria-label={t('common.refresh', 'Refresh')}
+            >
+              <RefreshCw size={15} />
+            </button>
+            <button
+              onClick={() => {
+                const path = location.pathname;
+                const tokenParam = authToken ? `?token=${encodeURIComponent(authToken)}` : '';
+                window.open(`/cc-connect${path}${tokenParam}`, '_blank');
+              }}
+              className="p-1.5 rounded-lg text-gray-500 hover:text-gray-950 dark:text-gray-400 dark:hover:text-white bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-700 shadow-sm shrink-0"
+              title="在新窗口打开"
+            >
+              <ExternalLink size={15} />
+            </button>
+          </div>
         )}
       </div>
 
@@ -345,11 +355,9 @@ export default function ProjectDetail() {
                         p.connected ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600',
                       )}
                     />
-                    <Plug size={12} className="text-gray-400 shrink-0" />
                     <span className="text-sm text-gray-900 dark:text-white truncate">{p.type}</span>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[11px] text-gray-400">{t('projects.channelAgent', 'Agent')}</span>
                     <select
                       className="text-xs rounded border border-gray-200 dark:border-gray-700 bg-transparent px-1.5 py-0.5 disabled:opacity-50"
                       value={p.inherited ? '' : (p.agent || '')}
