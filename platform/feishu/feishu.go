@@ -661,7 +661,8 @@ func (p *Platform) onCardAction(event *callback.CardActionTriggerEvent) (*callba
 
 	// Check allow_chat filter: skip card actions from chats this platform doesn't own.
 	if event.Event.Context != nil && event.Event.Context.OpenChatID != "" {
-		if !core.AllowList(p.allowChat, event.Event.Context.OpenChatID) {
+		openChatID := event.Event.Context.OpenChatID
+		if !core.AllowList(p.allowChat, openChatID) || !p.ownsChat(openChatID) {
 			return nil, nil
 		}
 	}
@@ -1236,8 +1237,8 @@ func (p *Platform) onMessageRecalled(_ context.Context, event *larkim.P2MessageR
 		slog.Debug(p.tag()+": recall event without message id", "chat_id", chatID)
 		return nil
 	}
-	if chatID != "" && !core.AllowList(p.allowChat, chatID) {
-		slog.Debug(p.tag()+": recall event from unauthorized chat", "chat_id", chatID, "message_id", messageID)
+	if chatID != "" && (!core.AllowList(p.allowChat, chatID) || !p.ownsChat(chatID)) {
+		slog.Debug(p.tag()+": recall event from unauthorized or unowned chat", "chat_id", chatID, "message_id", messageID)
 		return nil
 	}
 
@@ -1355,6 +1356,10 @@ func (p *Platform) onMessage(ctx context.Context, event *larkim.P2MessageReceive
 
 	if chatType == "group" && !core.AllowList(p.allowChat, chatID) {
 		slog.Debug(p.tag()+": message from unauthorized chat", "chat_id", chatID)
+		return nil
+	}
+	if chatType == "group" && !p.ownsChat(chatID) {
+		slog.Debug(p.tag()+": chat owned by a newer platform on this app_id, skipping (one-chat-one-platform)", "chat_id", chatID)
 		return nil
 	}
 	if chatType != "group" && p.groupOnly {
