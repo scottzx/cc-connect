@@ -434,8 +434,13 @@ type ProviderConfig struct {
 	Thinking string            // override thinking type sent to this provider ("disabled", "enabled", or "" for no rewrite)
 	Env      map[string]string // arbitrary extra env vars (e.g. CLAUDE_CODE_USE_BEDROCK=1)
 	// Codex-specific provider config (maps to Codex model_providers.<name>)
-	CodexWireAPI     string            // wire API format (e.g. "responses")
-	CodexHTTPHeaders map[string]string // custom HTTP headers
+	CodexWireAPI                 string            // wire API format (e.g. "responses")
+	CodexHTTPHeaders             map[string]string // custom HTTP headers
+	CodexReasoningEffort         string            // model_reasoning_effort override (e.g. "xhigh")
+	CodexModelVerbosity          string            // model_verbosity (e.g. "high")
+	CodexDisableResponseStorage  bool              // disable_response_storage
+	CodexWebSearch               bool              // [features] web_search_request
+	CodexRequiresOpenAIAuth      bool              // [model_providers.<name>] requires_openai_auth
 }
 
 // ProviderSwitcher is an optional interface for agents that support multiple API providers.

@@ -220,7 +220,7 @@ func TestIntegration_Codex_ProviderConfig_WrittenCorrectly(t *testing.T) {
 
 			home := filepath.Join(t.TempDir(), ".codex")
 
-			err := ensureCodexProviderConfig(home, prov.Name, prov.BaseURL, prov.CodexWireAPI, prov.CodexHTTPHeaders)
+			err := ensureCodexProviderConfig(home, prov.Name, prov.BaseURL, prov.CodexWireAPI, prov.CodexRequiresOpenAIAuth, prov.CodexHTTPHeaders)
 			if err != nil {
 				t.Fatalf("ensureCodexProviderConfig failed: %v", err)
 			}

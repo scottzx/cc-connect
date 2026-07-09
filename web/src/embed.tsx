@@ -180,7 +180,13 @@ class CcConnectPanelElement extends HTMLElement {
     // maintain our own `.dark` wrapper.
     this.wrapper = document.createElement("div");
     this.wrapper.className = initialTheme === "dark" ? "dark" : "";
-    this.wrapper.style.cssText = "width:100%;height:100%;display:flex;flex-direction:column;min-height:0";
+    // `transform` makes the wrapper the containing block for descendant
+    // `position: fixed` elements (e.g. the Modal's `fixed inset-0` overlay).
+    // Without it, fixed elements resolve against the viewport, so modals
+    // center on the whole window instead of within this embedded panel. Set
+    // via inline style (not className) because the theme handler reassigns
+    // className on every theme change and would clobber an extra class.
+    this.wrapper.style.cssText = "width:100%;height:100%;display:flex;flex-direction:column;min-height:0;transform:translateZ(0)";
     shadow.appendChild(this.wrapper);
 
     // Portal container: Radix UI / React portals will be mounted here

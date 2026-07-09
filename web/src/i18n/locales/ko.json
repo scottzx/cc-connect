@@ -365,7 +365,17 @@
       "perAgentHint": "에이전트마다 다른 기본 URL/모델을 사용할 수 있습니다. 아래에서 에이전트 유형별로 설정하세요.",
       "defaultConfig": "기본값",
       "baseUrl": "기본 URL",
-      "codexWireApi": "Wire API"
+      "codexWireApi": "Wire API",
+      "codexReasoningEffort": "추론 강도",
+      "codexVerbosity": "상세도",
+      "codexWebSearch": "웹 검색 사용",
+      "codexDisableResponseStorage": "응답 저장 비활성화",
+      "codexRequiresOpenAIAuth": "OpenAI 인증 필요",
+      "claudeModels": "Claude 등급 모델 (선택)",
+      "claudeModelsHint": "Claude Code 각 등급에 다른 모델 ID를 지정합니다. 비워 두면 기본 모델을 사용합니다(위의 기본 모델에서 설정).",
+      "haikuModel": "Haiku 기본 모델",
+      "sonnetModel": "Sonnet 기본 모델",
+      "opusModel": "Opus 기본 모델"
     },
     "ccSwitch": {
       "title": "CC-Switch에서 가져오기",

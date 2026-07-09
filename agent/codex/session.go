@@ -30,6 +30,11 @@ type codexSession struct {
 	mode           string
 	baseURL        string   // provider base URL; passed as -c openai_base_url=<url>
 	modelProvider  string   // Codex model_provider name; passed as -c model_provider=<name>
+	modelVerbosity string   // passed as -c model_verbosity=<value>
+	// disableResponseStorage → -c disable_response_storage=true
+	disableResponseStorage bool
+	// webSearch → -c features.web_search_request=true
+	webSearch      bool
 	cmd            string   // CLI binary, default "codex"
 	cliExtraArgs   []string // extra args from cmd, prepended before exec args
 	extraEnv       []string
@@ -264,6 +269,15 @@ func (cs *codexSession) buildExecArgs(prompt string, imagePaths []string) []stri
 	}
 	if cs.effort != "" {
 		args = append(args, "-c", fmt.Sprintf("model_reasoning_effort=%q", cs.effort))
+	}
+	if cs.modelVerbosity != "" {
+		args = append(args, "-c", fmt.Sprintf("model_verbosity=%q", cs.modelVerbosity))
+	}
+	if cs.disableResponseStorage {
+		args = append(args, "-c", "disable_response_storage=true")
+	}
+	if cs.webSearch {
+		args = append(args, "-c", "features.web_search_request=true")
 	}
 
 	if isResume {

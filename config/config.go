@@ -586,6 +586,13 @@ type CodexProviderConfig struct {
 	EnvKey      string            `toml:"env_key,omitempty" json:"env_key,omitempty"`
 	WireAPI     string            `toml:"wire_api,omitempty" json:"wire_api,omitempty"`
 	HTTPHeaders map[string]string `toml:"http_headers,omitempty" json:"http_headers,omitempty"`
+	// Additional Codex config.toml knobs, applied at session launch. These map
+	// 1:1 to the fields cc-switch stores in ~/.codex/config.toml.
+	ReasoningEffort        string `toml:"reasoning_effort,omitempty" json:"reasoning_effort,omitempty"`                  // model_reasoning_effort (e.g. "xhigh")
+	ModelVerbosity         string `toml:"model_verbosity,omitempty" json:"model_verbosity,omitempty"`                    // model_verbosity (e.g. "high")
+	DisableResponseStorage bool   `toml:"disable_response_storage,omitempty" json:"disable_response_storage,omitempty"`  // disable_response_storage
+	WebSearch              bool   `toml:"web_search,omitempty" json:"web_search,omitempty"`                              // [features] web_search_request
+	RequiresOpenAIAuth     bool   `toml:"requires_openai_auth,omitempty" json:"requires_openai_auth,omitempty"`          // [model_providers.<name>] requires_openai_auth
 }
 
 type PlatformConfig struct {
@@ -2624,9 +2631,14 @@ func cloneAgentConfig(in AgentConfig) AgentConfig {
 			}
 			if in.Providers[i].Codex != nil {
 				p.Codex = &CodexProviderConfig{
-					EnvKey:      in.Providers[i].Codex.EnvKey,
-					WireAPI:     in.Providers[i].Codex.WireAPI,
-					HTTPHeaders: cloneStringMap(in.Providers[i].Codex.HTTPHeaders),
+					EnvKey:                 in.Providers[i].Codex.EnvKey,
+					WireAPI:                in.Providers[i].Codex.WireAPI,
+					HTTPHeaders:            cloneStringMap(in.Providers[i].Codex.HTTPHeaders),
+					ReasoningEffort:        in.Providers[i].Codex.ReasoningEffort,
+					ModelVerbosity:         in.Providers[i].Codex.ModelVerbosity,
+					DisableResponseStorage: in.Providers[i].Codex.DisableResponseStorage,
+					WebSearch:              in.Providers[i].Codex.WebSearch,
+					RequiresOpenAIAuth:     in.Providers[i].Codex.RequiresOpenAIAuth,
 				}
 			}
 			out.Providers[i] = p

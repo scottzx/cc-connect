@@ -373,7 +373,17 @@
       "perAgentHint": "不同 Agent 可能使用不同的 Base URL / 模型，可按 Agent 类型分别配置。",
       "defaultConfig": "默认",
       "baseUrl": "Base URL",
-      "codexWireApi": "Wire API"
+      "codexWireApi": "Wire API",
+      "codexReasoningEffort": "推理强度",
+      "codexVerbosity": "输出详细度",
+      "codexWebSearch": "启用联网搜索",
+      "codexDisableResponseStorage": "禁用响应存储",
+      "codexRequiresOpenAIAuth": "需要 OpenAI 鉴权",
+      "claudeModels": "Claude 分级模型（可选）",
+      "claudeModelsHint": "为 Claude Code 各档位指定不同模型 ID；留空则使用主模型（在上方「默认模型」设置）。",
+      "haikuModel": "Haiku 默认模型",
+      "sonnetModel": "Sonnet 默认模型",
+      "opusModel": "Opus 默认模型"
     },
     "ccSwitch": {
       "title": "从 CC-Switch 导入",

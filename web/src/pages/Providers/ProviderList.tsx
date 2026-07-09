@@ -28,18 +28,14 @@ const AGENTS_LIST: AgentDisplayInfo[] = [
   { type: 'hermes', name: 'Hermes', desc: 'Hermes terminal development agent' },
 ];
 
-const AGENTS_BY_TYPE: Record<string, AgentDisplayInfo> =
-  Object.fromEntries(AGENTS_LIST.map(a => [a.type, a]));
-
 /* ── 1agents installed-agent detection (best-effort) ──
  *
  * The panel is embedded in the 1agents host, which serves /api/agent/catalog
  * (same origin, no auth) — the per-host probe of which agent CLIs are actually
- * installed on PATH. We drive "My Agents" off that detection so the list
- * mirrors what's installed. cc-switch can only manage providers for the six
- * app types in CATALOG_TYPE_TO_CCSWITCH; any other installed agent is shown
- * greyed out with an "in development" badge. When the panel runs standalone
- * (no 1agents host → the fetch fails) we fall back to the full static list. */
+ * installed on PATH. "My Agents" always lists exactly the six app types
+ * cc-switch manages (CATALOG_TYPE_TO_CCSWITCH), mirroring the provider picker;
+ * detection is used only to float installed agents to the top. When the panel
+ * runs standalone (no 1agents host → the fetch fails) the order is static. */
 interface CatalogAgent {
   type: string; // 1agents agent type, e.g. "claudecode", "antigravity"
   label: string; // display label, e.g. "Claude Code", "Antigravity"
@@ -56,9 +52,23 @@ const CATALOG_TYPE_TO_CCSWITCH: Record<string, string> = {
   openclaw: 'openclaw',
 };
 
-interface AgentItem extends AgentDisplayInfo {
-  supported: boolean; // true → cc-switch can manage providers (interactive card)
-}
+// The 1agents agent types a provider can apply to — kept in lockstep with the
+// six apps cc-switch manages (CATALOG_TYPE_TO_CCSWITCH), so the "适用 Agent 类型"
+// picker never offers a type cc-switch can't provision providers for.
+const PROVIDER_AGENT_TYPES = Object.keys(CATALOG_TYPE_TO_CCSWITCH);
+
+// Claude Code exposes per-tier default models (besides the main model) through
+// these ANTHROPIC_* env vars. The claudecode agent reads them verbatim from the
+// provider's env map, and cc-switch stores them the same way — so we surface
+// them as first-class fields that write straight into GlobalProvider.env.
+// Claude Code tiered default models. Each slot maps to an AgentConfigEntry field
+// (edited inside the Claude panel) and, on save, to an ANTHROPIC_DEFAULT_*_MODEL
+// env var written by mergePerAgentToForm.
+const CLAUDE_MODEL_SLOTS: { field: 'haiku_model' | 'sonnet_model' | 'opus_model'; env: string; labelKey: string }[] = [
+  { field: 'haiku_model', env: 'ANTHROPIC_DEFAULT_HAIKU_MODEL', labelKey: 'globalProviders.form.haikuModel' },
+  { field: 'sonnet_model', env: 'ANTHROPIC_DEFAULT_SONNET_MODEL', labelKey: 'globalProviders.form.sonnetModel' },
+  { field: 'opus_model', env: 'ANTHROPIC_DEFAULT_OPUS_MODEL', labelKey: 'globalProviders.form.opusModel' },
+];
 
 let catalogCache: CatalogAgent[] | null = null;
 
@@ -76,24 +86,21 @@ async function fetchInstalledAgents(): Promise<CatalogAgent[] | null> {
   }
 }
 
-// Build the rendered agent list. With detection available, list installed
-// agents (cc-switch-supported first); without it, fall back to the full
-// static set, all treated as supported (legacy standalone behaviour).
-function buildAgentItems(catalog: CatalogAgent[] | null): AgentItem[] {
-  if (!catalog) return AGENTS_LIST.map(a => ({ ...a, supported: true }));
+// The rendered "My Agents" list is always the six cc-switch-managed apps
+// (AGENTS_LIST). Detection, when available, only reorders it so installed
+// agents float to the top; the set itself never changes.
+function buildAgentItems(catalog: CatalogAgent[] | null): AgentDisplayInfo[] {
+  if (!catalog) return AGENTS_LIST;
 
-  const items: AgentItem[] = catalog
-    .filter(a => a.installed)
-    .map(a => {
-      const ccType = CATALOG_TYPE_TO_CCSWITCH[a.type];
-      if (ccType) {
-        const meta = AGENTS_BY_TYPE[ccType];
-        return { type: ccType, name: meta?.name || a.label, desc: meta?.desc || '', supported: true };
-      }
-      return { type: a.type, name: a.label, desc: '', supported: false };
-    });
-
-  return items.sort((x, y) => Number(y.supported) - Number(x.supported));
+  const installed = new Set(
+    catalog
+      .filter(a => a.installed)
+      .map(a => CATALOG_TYPE_TO_CCSWITCH[a.type])
+      .filter(Boolean),
+  );
+  return [...AGENTS_LIST].sort(
+    (x, y) => Number(installed.has(y.type)) - Number(installed.has(x.type)),
+  );
 }
 
 function extractModelFromConfig(appType: string, val?: string): string {
@@ -675,19 +682,51 @@ function ModelListEditor({
 
 /* ── Per-agent config type (internal form state) ── */
 
-type AgentConfigEntry = { base_url: string; model: string; models: ProviderModel[]; wire_api?: string };
+type AgentConfigEntry = {
+  base_url: string;
+  model: string;
+  models: ProviderModel[];
+  // Claude Code tiered defaults (only meaningful for claudecode)
+  haiku_model?: string;
+  sonnet_model?: string;
+  opus_model?: string;
+  // Codex extras (only meaningful for codex) — mirror ~/.codex/config.toml
+  wire_api?: string;
+  reasoning_effort?: string;
+  model_verbosity?: string;
+  disable_response_storage?: boolean;
+  web_search?: boolean;
+  requires_openai_auth?: boolean;
+};
+
+// buildAgentEntry derives a single agent's panel state from the flat provider
+// form, hydrating agent-specific extras (Claude tiers from env, Codex from codex).
+function buildAgentEntry(form: GlobalProvider, at: string): AgentConfigEntry {
+  const entry: AgentConfigEntry = {
+    base_url: form.endpoints?.[at] || form.base_url || '',
+    model: form.agent_models?.[at] || form.model || '',
+    models: form.agent_model_lists?.[at] || form.models || [],
+  };
+  if (at === 'claudecode') {
+    entry.haiku_model = form.env?.['ANTHROPIC_DEFAULT_HAIKU_MODEL'] || '';
+    entry.sonnet_model = form.env?.['ANTHROPIC_DEFAULT_SONNET_MODEL'] || '';
+    entry.opus_model = form.env?.['ANTHROPIC_DEFAULT_OPUS_MODEL'] || '';
+  }
+  if (at === 'codex') {
+    entry.wire_api = form.codex?.wire_api || '';
+    entry.reasoning_effort = form.codex?.reasoning_effort || '';
+    entry.model_verbosity = form.codex?.model_verbosity || '';
+    entry.disable_response_storage = form.codex?.disable_response_storage || false;
+    entry.web_search = form.codex?.web_search || false;
+    entry.requires_openai_auth = form.codex?.requires_openai_auth || false;
+  }
+  return entry;
+}
 
 function buildPerAgentConfigs(form: GlobalProvider): Record<string, AgentConfigEntry> {
   const agents = form.agent_types || [];
   const result: Record<string, AgentConfigEntry> = {};
-  for (const at of agents) {
-    result[at] = {
-      base_url: form.endpoints?.[at] || form.base_url || '',
-      model: form.agent_models?.[at] || form.model || '',
-      models: form.agent_model_lists?.[at] || form.models || [],
-      wire_api: at === 'codex' ? form.codex?.wire_api || '' : undefined,
-    };
-  }
+  for (const at of agents) result[at] = buildAgentEntry(form, at);
   return result;
 }
 
@@ -700,7 +739,6 @@ function mergePerAgentToForm(form: GlobalProvider, configs: Record<string, Agent
   const endpoints: Record<string, string> = {};
   const agentModels: Record<string, string> = {};
   const agentModelLists: Record<string, ProviderModel[]> = {};
-  let codex: GlobalProvider['codex'];
 
   for (const at of agents) {
     const cfg = configs[at];
@@ -711,9 +749,31 @@ function mergePerAgentToForm(form: GlobalProvider, configs: Record<string, Agent
       const baseModelsStr = JSON.stringify(base.models);
       if (cfg.models.length > 0 && modelsStr !== baseModelsStr) agentModelLists[at] = cfg.models;
     }
-    if (at === 'codex' && cfg.wire_api) {
-      codex = { wire_api: cfg.wire_api };
+  }
+
+  // Claude Code tiered models → ANTHROPIC_DEFAULT_*_MODEL env vars (preserve other env keys).
+  const env = { ...(form.env || {}) };
+  const claude = configs['claudecode'];
+  if (claude) {
+    for (const slot of CLAUDE_MODEL_SLOTS) {
+      const v = (claude[slot.field] || '').trim();
+      if (v) env[slot.env] = v;
+      else delete env[slot.env];
     }
+  }
+
+  // Codex extras → provider codex sub-config (maps to ~/.codex/config.toml).
+  let codex: GlobalProvider['codex'];
+  const cx = configs['codex'];
+  if (cx) {
+    const c: NonNullable<GlobalProvider['codex']> = {};
+    if (cx.wire_api) c.wire_api = cx.wire_api;
+    if (cx.reasoning_effort) c.reasoning_effort = cx.reasoning_effort;
+    if (cx.model_verbosity) c.model_verbosity = cx.model_verbosity;
+    if (cx.disable_response_storage) c.disable_response_storage = true;
+    if (cx.web_search) c.web_search = true;
+    if (cx.requires_openai_auth) c.requires_openai_auth = true;
+    if (Object.keys(c).length) codex = c;
   }
 
   return {
@@ -724,6 +784,7 @@ function mergePerAgentToForm(form: GlobalProvider, configs: Record<string, Agent
     endpoints: Object.keys(endpoints).length ? endpoints : undefined,
     agent_models: Object.keys(agentModels).length ? agentModels : undefined,
     agent_model_lists: Object.keys(agentModelLists).length ? agentModelLists : undefined,
+    env: Object.keys(env).length ? env : undefined,
     codex: codex || undefined,
   };
 }
@@ -771,30 +832,112 @@ function AgentConfigEditor({
           onSetDefault={model => onChange({ ...config, model })}
         />
       </div>
-      {agentType === 'codex' && (
+      {agentType === 'claudecode' && (
         <div>
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-            {t('globalProviders.form.codexWireApi')}
+            {t('globalProviders.form.claudeModels')}
           </label>
-          <select
-            value={config.wire_api || ''}
-            onChange={e => onChange({ ...config, wire_api: e.target.value || undefined })}
-            className={cn(
-              'w-full rounded-xl border px-3 py-2 text-sm outline-none transition-colors',
-              'border-gray-200 bg-white text-gray-900',
-              'dark:border-white/10 dark:bg-white/[0.04] dark:text-white',
-              'focus:border-accent focus:ring-1 focus:ring-accent/30',
-            )}
-          >
-            <option value="">default</option>
-            <option value="responses">responses</option>
-            <option value="chat">chat</option>
-          </select>
+          <div className="grid gap-2">
+            {CLAUDE_MODEL_SLOTS.map(slot => (
+              <div key={slot.field} className="flex items-center gap-2">
+                <span className="w-24 shrink-0 text-xs text-gray-500 dark:text-gray-400">
+                  {t(slot.labelKey)}
+                </span>
+                <Input
+                  value={config[slot.field] || ''}
+                  onChange={e => onChange({ ...config, [slot.field]: e.target.value })}
+                  placeholder="model-id"
+                />
+              </div>
+            ))}
+          </div>
+          <p className="mt-1 text-xs text-gray-400">{t('globalProviders.form.claudeModelsHint')}</p>
         </div>
+      )}
+      {agentType === 'codex' && (
+        <>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+              {t('globalProviders.form.codexWireApi')}
+            </label>
+            <select
+              value={config.wire_api || ''}
+              onChange={e => onChange({ ...config, wire_api: e.target.value || undefined })}
+              className={cn(selectCls)}
+            >
+              <option value="">default</option>
+              <option value="responses">responses</option>
+              <option value="chat">chat</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+              {t('globalProviders.form.codexReasoningEffort')}
+            </label>
+            <select
+              value={config.reasoning_effort || ''}
+              onChange={e => onChange({ ...config, reasoning_effort: e.target.value || undefined })}
+              className={cn(selectCls)}
+            >
+              <option value="">default</option>
+              <option value="minimal">minimal</option>
+              <option value="low">low</option>
+              <option value="medium">medium</option>
+              <option value="high">high</option>
+              <option value="xhigh">xhigh</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+              {t('globalProviders.form.codexVerbosity')}
+            </label>
+            <select
+              value={config.model_verbosity || ''}
+              onChange={e => onChange({ ...config, model_verbosity: e.target.value || undefined })}
+              className={cn(selectCls)}
+            >
+              <option value="">default</option>
+              <option value="low">low</option>
+              <option value="medium">medium</option>
+              <option value="high">high</option>
+            </select>
+          </div>
+          <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
+            <input
+              type="checkbox"
+              checked={!!config.web_search}
+              onChange={e => onChange({ ...config, web_search: e.target.checked })}
+            />
+            {t('globalProviders.form.codexWebSearch')}
+          </label>
+          <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
+            <input
+              type="checkbox"
+              checked={!!config.disable_response_storage}
+              onChange={e => onChange({ ...config, disable_response_storage: e.target.checked })}
+            />
+            {t('globalProviders.form.codexDisableResponseStorage')}
+          </label>
+          <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
+            <input
+              type="checkbox"
+              checked={!!config.requires_openai_auth}
+              onChange={e => onChange({ ...config, requires_openai_auth: e.target.checked })}
+            />
+            {t('globalProviders.form.codexRequiresOpenAIAuth')}
+          </label>
+        </>
       )}
     </div>
   );
 }
+
+const selectCls = cn(
+  'w-full rounded-xl border px-3 py-2 text-sm outline-none transition-colors',
+  'border-gray-200 bg-white text-gray-900',
+  'dark:border-white/10 dark:bg-white/[0.04] dark:text-white',
+  'focus:border-accent focus:ring-1 focus:ring-accent/30',
+);
 
 /* ── Add/Edit Form Modal ── */
 
@@ -816,7 +959,6 @@ function ProviderFormModal({
   const [activeAgentTab, setActiveAgentTab] = useState<string>('');
 
   const agents = form.agent_types || [];
-  const multiAgent = agents.length >= 2;
 
   const updatePerAgent = (at: string, cfg: AgentConfigEntry) => {
     setPerAgent(prev => ({ ...prev, [at]: cfg }));
@@ -830,17 +972,14 @@ function ProviderFormModal({
         setPerAgent(prev => {
           const updated = { ...prev };
           for (const at of newAgents) {
-            if (!updated[at]) {
-              updated[at] = { base_url: f.base_url || '', model: f.model || '', models: [...(f.models || [])] };
-              if (at === 'codex') updated[at].wire_api = f.codex?.wire_api || '';
-            }
+            if (!updated[at]) updated[at] = buildAgentEntry(f, at);
           }
           for (const at of Object.keys(updated)) {
             if (!newAgents.includes(at)) delete updated[at];
           }
           return updated;
         });
-        if (newAgents.length >= 2 && !newAgents.includes(activeAgentTab)) {
+        if (newAgents.length >= 1 && !newAgents.includes(activeAgentTab)) {
           setActiveAgentTab(newAgents[0]);
         }
       }
@@ -852,7 +991,9 @@ function ProviderFormModal({
     if (!form.name) return;
     setSaving(true);
     try {
-      const final = multiAgent ? mergePerAgentToForm(form, perAgent) : form;
+      // With at least one agent selected the per-agent panels are the source of
+      // truth; with none, the flat "default" fields apply to all agent types.
+      const final = agents.length >= 1 ? mergePerAgentToForm(form, perAgent) : form;
       await onSave(final);
     } catch { /* empty */ }
     setSaving(false);
@@ -904,7 +1045,7 @@ function ProviderFormModal({
               {t('globalProviders.form.agentTypes')}
             </label>
             <div className="flex flex-wrap gap-2">
-              {['claudecode', 'codex', 'gemini', 'opencode', 'cursor', 'kimi', 'qoder', 'acp'].map(at => {
+              {PROVIDER_AGENT_TYPES.map(at => {
                 const selected = agents.includes(at);
                 return (
                   <button
@@ -928,8 +1069,10 @@ function ProviderFormModal({
             <p className="mt-1 text-xs text-gray-400">{t('globalProviders.form.agentTypesHint')}</p>
           </div>
 
-          {/* Base URL / Model / Models — flat when <= 1 agent, tabbed when >= 2 */}
-          {!multiAgent ? (
+          {/* Base URL / Model / Models — a "default" panel when no agent is
+              selected (applies to all), otherwise one panel per selected agent
+              carrying its agent-specific fields (Claude tiers / Codex knobs). */}
+          {agents.length === 0 ? (
             <>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -968,7 +1111,7 @@ function ProviderFormModal({
           ) : (
             <div className="rounded-xl border border-gray-200 dark:border-white/10 overflow-hidden">
               <p className="px-3 pt-3 text-xs text-gray-400">{t('globalProviders.form.perAgentHint')}</p>
-              <div className="flex gap-1 px-3 pt-2 pb-0">
+              <div className="flex flex-wrap gap-1 px-3 pt-2 pb-0">
                 {agents.map(at => (
                   <button
                     key={at}
@@ -992,7 +1135,7 @@ function ProviderFormModal({
                     <AgentConfigEditor
                       key={at}
                       agentType={at}
-                      config={perAgent[at] || { base_url: '', model: '', models: [] }}
+                      config={perAgent[at] || buildAgentEntry(form, at)}
                       onChange={cfg => updatePerAgent(at, cfg)}
                       t={t}
                     />
@@ -1239,10 +1382,6 @@ function AgentGrid({
   return (
     <div className="grid gap-6 md:grid-cols-2">
       {agentItems.map(agent => {
-        if (!agent.supported) {
-          return <UnsupportedAgentCard key={agent.type} agent={agent} lang={lang} />;
-        }
-
         const appProviders = ccProviders.filter(p => p.app_type === agent.type);
         const currentProvider = appProviders.find(p => p.is_current);
         const configVal = ccSettings[`common_config_${agent.type}`];
@@ -1264,32 +1403,6 @@ function AgentGrid({
         );
       })}
     </div>
-  );
-}
-
-/* Greyed-out card for an installed agent cc-switch can't manage yet. */
-function UnsupportedAgentCard({ agent, lang }: { agent: AgentItem; lang: string }) {
-  const isChinese = lang.startsWith('zh');
-  return (
-    <Card className="flex flex-col justify-between h-full space-y-4 opacity-60">
-      <div>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Cpu size={18} className="text-gray-400 shrink-0" />
-            <h3 className="font-semibold text-gray-500 dark:text-gray-400 text-base">{agent.name}</h3>
-          </div>
-          <Badge variant="warning">{isChinese ? '迭代中' : 'In development'}</Badge>
-        </div>
-        <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">{agent.type}</p>
-      </div>
-      <div className="pt-3 border-t border-gray-100 dark:border-white/[0.06]">
-        <p className="text-xs text-gray-400 dark:text-gray-500">
-          {isChinese
-            ? 'cc-switch 暂不支持该智能体的供应商切换，敬请期待。'
-            : 'cc-switch does not yet support provider switching for this agent. Coming soon.'}
-        </p>
-      </div>
-    </Card>
   );
 }
 

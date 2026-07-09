@@ -1872,6 +1872,11 @@ func configProviderToCore(p config.ProviderConfig) core.ProviderConfig {
 	if p.Codex != nil {
 		c.CodexWireAPI = p.Codex.WireAPI
 		c.CodexHTTPHeaders = p.Codex.HTTPHeaders
+		c.CodexReasoningEffort = p.Codex.ReasoningEffort
+		c.CodexModelVerbosity = p.Codex.ModelVerbosity
+		c.CodexDisableResponseStorage = p.Codex.DisableResponseStorage
+		c.CodexWebSearch = p.Codex.WebSearch
+		c.CodexRequiresOpenAIAuth = p.Codex.RequiresOpenAIAuth
 	}
 	return c
 }
@@ -1982,8 +1987,13 @@ func configProviderToGlobal(p config.ProviderConfig) core.GlobalProviderInfo {
 	}
 	if p.Codex != nil {
 		info.Codex = &core.GlobalCodexConfig{
-			WireAPI:     p.Codex.WireAPI,
-			HTTPHeaders: p.Codex.HTTPHeaders,
+			WireAPI:                p.Codex.WireAPI,
+			HTTPHeaders:            p.Codex.HTTPHeaders,
+			ReasoningEffort:        p.Codex.ReasoningEffort,
+			ModelVerbosity:         p.Codex.ModelVerbosity,
+			DisableResponseStorage: p.Codex.DisableResponseStorage,
+			WebSearch:              p.Codex.WebSearch,
+			RequiresOpenAIAuth:     p.Codex.RequiresOpenAIAuth,
 		}
 	}
 	return info
@@ -2016,8 +2026,13 @@ func globalProviderToConfig(info core.GlobalProviderInfo) config.ProviderConfig 
 	}
 	if info.Codex != nil {
 		p.Codex = &config.CodexProviderConfig{
-			WireAPI:     info.Codex.WireAPI,
-			HTTPHeaders: info.Codex.HTTPHeaders,
+			WireAPI:                info.Codex.WireAPI,
+			HTTPHeaders:            info.Codex.HTTPHeaders,
+			ReasoningEffort:        info.Codex.ReasoningEffort,
+			ModelVerbosity:         info.Codex.ModelVerbosity,
+			DisableResponseStorage: info.Codex.DisableResponseStorage,
+			WebSearch:              info.Codex.WebSearch,
+			RequiresOpenAIAuth:     info.Codex.RequiresOpenAIAuth,
 		}
 	}
 	return p

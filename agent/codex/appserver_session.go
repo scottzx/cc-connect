@@ -148,6 +148,11 @@ type appServerSession struct {
 	mode           string
 	baseURL        string
 	modelProvider  string
+	modelVerbosity string
+	// disableResponseStorage → -c disable_response_storage=true
+	disableResponseStorage bool
+	// webSearch → -c features.web_search_request=true
+	webSearch      bool
 	extraEnv       []string
 	codexHome      string
 	promptPreamble string
@@ -250,6 +255,15 @@ func (s *appServerSession) connect() error {
 	}
 	if baseURL := strings.TrimSpace(s.baseURL); baseURL != "" {
 		args = append(args, "-c", fmt.Sprintf("openai_base_url=%q", baseURL))
+	}
+	if verbosity := strings.TrimSpace(s.modelVerbosity); verbosity != "" {
+		args = append(args, "-c", fmt.Sprintf("model_verbosity=%q", verbosity))
+	}
+	if s.disableResponseStorage {
+		args = append(args, "-c", "disable_response_storage=true")
+	}
+	if s.webSearch {
+		args = append(args, "-c", "features.web_search_request=true")
 	}
 	cmd := exec.CommandContext(s.ctx, "codex", args...)
 	cmd.Dir = s.workDir

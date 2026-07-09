@@ -29,7 +29,7 @@ func TestIntegration_CodexProviderFlow(t *testing.T) {
 
 	// Step 1: write config.toml via our function
 	err := ensureCodexProviderConfig(home, "shengsuanyun-codex",
-		"https://router.shengsuanyun.com/api/v1", "responses", nil)
+		"https://router.shengsuanyun.com/api/v1", "responses", false, nil)
 	if err != nil {
 		t.Fatalf("ensureCodexProviderConfig: %v", err)
 	}

@@ -12,7 +12,7 @@ import (
 // ensureCodexProviderConfig writes or updates a [model_providers.<name>] section
 // in $CODEX_HOME/config.toml so that Codex CLI can use the provider's wire_api
 // and http_headers settings.
-func ensureCodexProviderConfig(codexHome, name, baseURL, wireAPI string, headers map[string]string) error {
+func ensureCodexProviderConfig(codexHome, name, baseURL, wireAPI string, requiresOpenAIAuth bool, headers map[string]string) error {
 	if name == "" {
 		return nil
 	}
@@ -28,7 +28,7 @@ func ensureCodexProviderConfig(codexHome, name, baseURL, wireAPI string, headers
 	raw, _ := os.ReadFile(cfgPath)
 	content := string(raw)
 
-	section := buildProviderSection(name, baseURL, wireAPI, headers)
+	section := buildProviderSection(name, baseURL, wireAPI, requiresOpenAIAuth, headers)
 	updated := upsertProviderSection(content, name, section)
 
 	if err := os.WriteFile(cfgPath, []byte(updated), 0o644); err != nil {
@@ -83,7 +83,7 @@ func resolveCodexHomeForConfig(explicit string) (string, error) {
 	return filepath.Join(homeDir, ".codex"), nil
 }
 
-func buildProviderSection(name, baseURL, wireAPI string, headers map[string]string) string {
+func buildProviderSection(name, baseURL, wireAPI string, requiresOpenAIAuth bool, headers map[string]string) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "[model_providers.%s]\n", name)
 	fmt.Fprintf(&sb, "name = %q\n", name)
@@ -93,6 +93,9 @@ func buildProviderSection(name, baseURL, wireAPI string, headers map[string]stri
 	fmt.Fprintf(&sb, "env_key = %q\n", "OPENAI_API_KEY")
 	if wireAPI != "" {
 		fmt.Fprintf(&sb, "wire_api = %q\n", wireAPI)
+	}
+	if requiresOpenAIAuth {
+		fmt.Fprintf(&sb, "requires_openai_auth = true\n")
 	}
 	if len(headers) > 0 {
 		fmt.Fprintf(&sb, "\n[model_providers.%s.http_headers]\n", name)

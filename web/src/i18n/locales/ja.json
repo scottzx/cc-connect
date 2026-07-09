@@ -365,7 +365,17 @@
       "perAgentHint": "エージェントごとに異なる Base URL やモデルを設定できます。",
       "defaultConfig": "デフォルト",
       "baseUrl": "Base URL",
-      "codexWireApi": "Wire API"
+      "codexWireApi": "Wire API",
+      "codexReasoningEffort": "推論の強度",
+      "codexVerbosity": "冗長度",
+      "codexWebSearch": "Web 検索を有効化",
+      "codexDisableResponseStorage": "レスポンス保存を無効化",
+      "codexRequiresOpenAIAuth": "OpenAI 認証が必要",
+      "claudeModels": "Claude 階層モデル（任意）",
+      "claudeModelsHint": "Claude Code の各階層に異なるモデル ID を指定します。空欄の場合はメインモデルを使用します（上の「デフォルトモデル」で設定）。",
+      "haikuModel": "Haiku デフォルトモデル",
+      "sonnetModel": "Sonnet デフォルトモデル",
+      "opusModel": "Opus デフォルトモデル"
     },
     "ccSwitch": {
       "title": "CC-Switch からインポート",

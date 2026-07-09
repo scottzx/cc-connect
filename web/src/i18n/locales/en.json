@@ -373,7 +373,17 @@
       "perAgentHint": "Different agents may use different Base URL / models. Configure per agent type below.",
       "defaultConfig": "Default",
       "baseUrl": "Base URL",
-      "codexWireApi": "Wire API"
+      "codexWireApi": "Wire API",
+      "codexReasoningEffort": "Reasoning effort",
+      "codexVerbosity": "Verbosity",
+      "codexWebSearch": "Enable web search",
+      "codexDisableResponseStorage": "Disable response storage",
+      "codexRequiresOpenAIAuth": "Requires OpenAI auth",
+      "claudeModels": "Claude tier models (optional)",
+      "claudeModelsHint": "Assign a different model ID per Claude Code tier; leave empty to use the main model (set above in Default model).",
+      "haikuModel": "Default Haiku model",
+      "sonnetModel": "Default Sonnet model",
+      "opusModel": "Default Opus model"
     },
     "ccSwitch": {
       "title": "Import from CC-Switch",

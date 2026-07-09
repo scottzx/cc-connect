@@ -15,6 +15,11 @@ export interface Provider {
 export interface CodexConfig {
   wire_api?: string;
   http_headers?: Record<string, string>;
+  reasoning_effort?: string;
+  model_verbosity?: string;
+  disable_response_storage?: boolean;
+  web_search?: boolean;
+  requires_openai_auth?: boolean;
 }
 
 export interface GlobalProvider {

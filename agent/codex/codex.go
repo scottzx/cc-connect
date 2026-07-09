@@ -446,26 +446,45 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 		}
 		baseURL = a.providers[a.activeIdx].BaseURL
 	}
-	provName, provAPIKey, provWireAPI, provHeaders := a.activeProviderCodexConfig()
+	prov := a.activeProviderCodexConfig()
 	a.mu.Unlock()
 
-	if provName != "" {
-		if err := ensureCodexProviderConfig(codexHome, provName, baseURL, provWireAPI, provHeaders); err != nil {
-			slog.Warn("codex: failed to write provider config", "provider", provName, "error", err)
+	// A provider-level reasoning effort overrides the agent/project default.
+	if prov.reasoningEffort != "" {
+		reasoningEffort = prov.reasoningEffort
+	}
+
+	if prov.writeConfig {
+		if err := ensureCodexProviderConfig(codexHome, prov.name, baseURL, prov.wireAPI, prov.requiresOpenAIAuth, prov.headers); err != nil {
+			slog.Warn("codex: failed to write provider config", "provider", prov.name, "error", err)
 		}
-		if err := ensureCodexAuth(codexHome, provAPIKey); err != nil {
-			slog.Warn("codex: failed to write auth.json", "provider", provName, "error", err)
+		if err := ensureCodexAuth(codexHome, prov.apiKey); err != nil {
+			slog.Warn("codex: failed to write auth.json", "provider", prov.name, "error", err)
 		}
 	}
 
 	if backend == "app_server" {
-		return newAppServerSession(ctx, appServerURL, workDir, model, reasoningEffort, mode, sessionID, baseURL, provName, extraEnv, codexHome, systemPrompt, appendPrompt)
+		s, err := newAppServerSession(ctx, appServerURL, workDir, model, reasoningEffort, mode, sessionID, baseURL, prov.name, extraEnv, codexHome, systemPrompt, appendPrompt)
+		if err != nil {
+			return nil, err
+		}
+		s.modelVerbosity = prov.modelVerbosity
+		s.disableResponseStorage = prov.disableResponseStorage
+		s.webSearch = prov.webSearch
+		return s, nil
 	}
 	if codexHome != "" {
 		extraEnv = append(extraEnv, "CODEX_HOME="+codexHome)
 	}
 
-	return newCodexSession(ctx, cliBin, cliExtraArgs, workDir, model, reasoningEffort, mode, sessionID, baseURL, extraEnv, provName, systemPrompt, appendPrompt)
+	s, err := newCodexSession(ctx, cliBin, cliExtraArgs, workDir, model, reasoningEffort, mode, sessionID, baseURL, extraEnv, prov.name, systemPrompt, appendPrompt)
+	if err != nil {
+		return nil, err
+	}
+	s.modelVerbosity = prov.modelVerbosity
+	s.disableResponseStorage = prov.disableResponseStorage
+	s.webSearch = prov.webSearch
+	return s, nil
 }
 
 func (a *Agent) ListSessions(_ context.Context) ([]core.AgentSessionInfo, error) {
@@ -725,20 +744,50 @@ func (a *Agent) providerEnvLocked() []string {
 	return env
 }
 
+// codexProviderExtras carries the active provider's Codex-specific settings
+// through StartSession: some are written into config.toml/auth.json, others are
+// passed as `-c` overrides at launch.
+type codexProviderExtras struct {
+	name                   string
+	apiKey                 string
+	baseURL                string
+	wireAPI                string
+	headers                map[string]string
+	reasoningEffort        string
+	modelVerbosity         string
+	disableResponseStorage bool
+	webSearch              bool
+	requiresOpenAIAuth     bool
+	// writeConfig is true when the provider needs a [model_providers.<name>]
+	// section + auth.json written (wire_api/headers/requires_openai_auth set,
+	// or a third-party base_url+api_key).
+	writeConfig bool
+}
+
 // activeProviderCodexConfig returns Codex-specific config for the active provider.
-// Returns non-empty name when the provider has codex config (wire_api, headers)
-// OR when it has a BaseURL (third-party provider needing auth.json).
-func (a *Agent) activeProviderCodexConfig() (name string, apiKey string, wireAPI string, headers map[string]string) {
+// The launch-time `-c` knobs (reasoning/verbosity/web-search/…) are always
+// populated; writeConfig gates the config.toml/auth.json write.
+func (a *Agent) activeProviderCodexConfig() codexProviderExtras {
 	if a.activeIdx < 0 || a.activeIdx >= len(a.providers) {
-		return
+		return codexProviderExtras{}
 	}
 	p := a.providers[a.activeIdx]
-	hasCodexConfig := p.CodexWireAPI != "" || len(p.CodexHTTPHeaders) > 0
-	isThirdParty := p.BaseURL != "" && p.APIKey != ""
-	if !hasCodexConfig && !isThirdParty {
-		return
+	ex := codexProviderExtras{
+		name:                   p.Name,
+		apiKey:                 p.APIKey,
+		baseURL:                p.BaseURL,
+		wireAPI:                p.CodexWireAPI,
+		headers:                p.CodexHTTPHeaders,
+		reasoningEffort:        p.CodexReasoningEffort,
+		modelVerbosity:         p.CodexModelVerbosity,
+		disableResponseStorage: p.CodexDisableResponseStorage,
+		webSearch:              p.CodexWebSearch,
+		requiresOpenAIAuth:     p.CodexRequiresOpenAIAuth,
 	}
-	return p.Name, p.APIKey, p.CodexWireAPI, p.CodexHTTPHeaders
+	hasCodexConfig := p.CodexWireAPI != "" || len(p.CodexHTTPHeaders) > 0 || p.CodexRequiresOpenAIAuth
+	isThirdParty := p.BaseURL != "" && p.APIKey != ""
+	ex.writeConfig = hasCodexConfig || isThirdParty
+	return ex
 }
 
 // PermissionModes returns the supported codex permission modes.

@@ -194,8 +194,13 @@ type GlobalModelEntry struct {
 
 // GlobalCodexConfig holds Codex-specific provider settings for the management API.
 type GlobalCodexConfig struct {
-	WireAPI     string            `json:"wire_api,omitempty"`
-	HTTPHeaders map[string]string `json:"http_headers,omitempty"`
+	WireAPI                string            `json:"wire_api,omitempty"`
+	HTTPHeaders            map[string]string `json:"http_headers,omitempty"`
+	ReasoningEffort        string            `json:"reasoning_effort,omitempty"`
+	ModelVerbosity         string            `json:"model_verbosity,omitempty"`
+	DisableResponseStorage bool              `json:"disable_response_storage,omitempty"`
+	WebSearch              bool              `json:"web_search,omitempty"`
+	RequiresOpenAIAuth     bool              `json:"requires_openai_auth,omitempty"`
 }
 
 func (m *ManagementServer) SetListGlobalProviders(fn func() ([]GlobalProviderInfo, error)) {

@@ -11,7 +11,7 @@ func TestEnsureCodexProviderConfig_CreatesNewFile(t *testing.T) {
 	home := filepath.Join(t.TempDir(), ".codex")
 
 	err := ensureCodexProviderConfig(home, "shengsuanyun",
-		"https://router.shengsuanyun.com/api/v1", "responses",
+		"https://router.shengsuanyun.com/api/v1", "responses", false,
 		map[string]string{"HTTP-Referer": "https://openai.com/zh-Hans-CN/codex/", "X-Title": "CodeX"})
 	if err != nil {
 		t.Fatalf("ensureCodexProviderConfig: %v", err)
@@ -59,7 +59,7 @@ key = "value"
 	}
 
 	err := ensureCodexProviderConfig(home, "shengsuanyun",
-		"https://router.shengsuanyun.com/api/v1", "responses", nil)
+		"https://router.shengsuanyun.com/api/v1", "responses", false, nil)
 	if err != nil {
 		t.Fatalf("ensureCodexProviderConfig: %v", err)
 	}
@@ -90,7 +90,7 @@ key = "value"
 func TestEnsureCodexProviderConfig_DefaultEnvKey(t *testing.T) {
 	home := filepath.Join(t.TempDir(), ".codex")
 
-	err := ensureCodexProviderConfig(home, "dmxapi", "https://www.dmxapi.cn/v1", "responses", nil)
+	err := ensureCodexProviderConfig(home, "dmxapi", "https://www.dmxapi.cn/v1", "responses", false, nil)
 	if err != nil {
 		t.Fatalf("ensureCodexProviderConfig: %v", err)
 	}
@@ -106,6 +106,23 @@ func TestEnsureCodexProviderConfig_DefaultEnvKey(t *testing.T) {
 	}
 	if strings.Contains(content, "requires_openai_auth") {
 		t.Errorf("config should NOT contain requires_openai_auth\ngot:\n%s", content)
+	}
+}
+
+func TestEnsureCodexProviderConfig_RequiresOpenAIAuth(t *testing.T) {
+	home := filepath.Join(t.TempDir(), ".codex")
+
+	err := ensureCodexProviderConfig(home, "openai-next", "https://api.openai-next.com/v1", "responses", true, nil)
+	if err != nil {
+		t.Fatalf("ensureCodexProviderConfig: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(home, "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "requires_openai_auth = true") {
+		t.Errorf("config should contain requires_openai_auth = true\ngot:\n%s", string(data))
 	}
 }
 
@@ -126,7 +143,7 @@ env_key = "OTHER_KEY"
 		t.Fatal(err)
 	}
 
-	err := ensureCodexProviderConfig(home, "shengsuanyun", "", "responses", nil)
+	err := ensureCodexProviderConfig(home, "shengsuanyun", "", "responses", false, nil)
 	if err != nil {
 		t.Fatalf("ensureCodexProviderConfig: %v", err)
 	}
@@ -146,7 +163,7 @@ env_key = "OTHER_KEY"
 }
 
 func TestEnsureCodexProviderConfig_SkipsWhenEmpty(t *testing.T) {
-	err := ensureCodexProviderConfig("", "", "", "", nil)
+	err := ensureCodexProviderConfig("", "", "", "", false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error for empty name: %v", err)
 	}

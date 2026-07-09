@@ -365,7 +365,17 @@
       "perAgentHint": "Cada tipo de agente puede usar diferente Base URL / modelos. Configura por tipo abajo.",
       "defaultConfig": "Predeterminado",
       "baseUrl": "Base URL",
-      "codexWireApi": "Wire API"
+      "codexWireApi": "Wire API",
+      "codexReasoningEffort": "Esfuerzo de razonamiento",
+      "codexVerbosity": "Verbosidad",
+      "codexWebSearch": "Habilitar búsqueda web",
+      "codexDisableResponseStorage": "Desactivar almacenamiento de respuestas",
+      "codexRequiresOpenAIAuth": "Requiere autenticación de OpenAI",
+      "claudeModels": "Modelos por nivel de Claude (opcional)",
+      "claudeModelsHint": "Asigna un ID de modelo distinto por nivel de Claude Code; déjalo vacío para usar el modelo principal (definido arriba en Modelo predeterminado).",
+      "haikuModel": "Modelo Haiku predeterminado",
+      "sonnetModel": "Modelo Sonnet predeterminado",
+      "opusModel": "Modelo Opus predeterminado"
     },
     "ccSwitch": {
       "title": "Importar desde CC-Switch",

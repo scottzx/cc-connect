@@ -100,6 +100,28 @@ func TestBuildExecArgs_IncludesModelProvider(t *testing.T) {
 	}
 }
 
+func TestBuildExecArgs_IncludesCodexProviderKnobs(t *testing.T) {
+	cs, err := newCodexSession(context.Background(), "codex", nil, "/tmp/project", "gpt-5.5", "", "full-auto", "", "", nil, "", "", "")
+	if err != nil {
+		t.Fatalf("newCodexSession: %v", err)
+	}
+	cs.modelVerbosity = "high"
+	cs.disableResponseStorage = true
+	cs.webSearch = true
+
+	args := cs.buildExecArgs("hello", nil)
+
+	if !containsSequence(args, []string{"-c", `model_verbosity="high"`}) {
+		t.Fatalf("args missing model_verbosity flag: %v", args)
+	}
+	if !containsSequence(args, []string{"-c", "disable_response_storage=true"}) {
+		t.Fatalf("args missing disable_response_storage flag: %v", args)
+	}
+	if !containsSequence(args, []string{"-c", "features.web_search_request=true"}) {
+		t.Fatalf("args missing web_search_request flag: %v", args)
+	}
+}
+
 func TestBuildExecArgs_ResumeOmitsCdFlag(t *testing.T) {
 	cs, err := newCodexSession(context.Background(), "codex", nil, "/tmp/project", "", "", "full-auto", "thread-abc", "", nil, "", "", "")
 	if err != nil {
