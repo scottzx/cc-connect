@@ -6,6 +6,7 @@ import zhTW from './locales/zh-TW.json';
 import ja from './locales/ja.json';
 import es from './locales/es.json';
 import ko from './locales/ko.json';
+import ru from './locales/ru.json';
 
 const params = new URLSearchParams(window.location.search);
 const queryLang = params.get('lang');
@@ -33,6 +34,7 @@ i18n.use(initReactI18next).init({
     ja: { translation: ja },
     es: { translation: es },
     ko: { translation: ko },
+    ru: { translation: ru },
   },
   lng: saved,
   fallbackLng: 'en',

@@ -29,12 +29,14 @@ func (a *stubAgent) Stop() error                                                
 
 type stubAgentSession struct{}
 
-func (s *stubAgentSession) Send(_ string, _ []ImageAttachment, _ []FileAttachment) error { return nil }
-func (s *stubAgentSession) RespondPermission(_ string, _ PermissionResult) error         { return nil }
-func (s *stubAgentSession) Events() <-chan Event                                         { return make(chan Event) }
-func (s *stubAgentSession) CurrentSessionID() string                                     { return "stub-session" }
-func (s *stubAgentSession) Alive() bool                                                  { return true }
-func (s *stubAgentSession) Close() error                                                 { return nil }
+func (s *stubAgentSession) Send(_ string, _ string, _ []ImageAttachment, _ []FileAttachment) error {
+	return nil
+}
+func (s *stubAgentSession) RespondPermission(_ string, _ PermissionResult) error { return nil }
+func (s *stubAgentSession) Events() <-chan Event                                 { return make(chan Event) }
+func (s *stubAgentSession) CurrentSessionID() string                             { return "stub-session" }
+func (s *stubAgentSession) Alive() bool                                          { return true }
+func (s *stubAgentSession) Close() error                                         { return nil }
 
 type recordingAgentSession struct {
 	stubAgentSession
@@ -182,7 +184,7 @@ func newResultAgentSession(result string) *resultAgentSession {
 	}
 }
 
-func (s *resultAgentSession) Send(prompt string, _ []ImageAttachment, _ []FileAttachment) error {
+func (s *resultAgentSession) Send(prompt string, _ string, _ []ImageAttachment, _ []FileAttachment) error {
 	s.sentPrompts = append(s.sentPrompts, prompt)
 	s.sendOnce.Do(func() {
 		s.events <- Event{Type: EventResult, Content: s.result, Done: true}
@@ -1087,6 +1089,84 @@ func TestProcessInteractiveEvents_DoesNotSuppressDifferentFinalText(t *testing.T
 	}
 }
 
+func TestProcessInteractiveEvents_StripsAgentFooterWhenEnabled(t *testing.T) {
+	p := &stubPlatformEngine{n: "telegram"}
+	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	e.SetDisplayConfig(DisplayCfg{
+		Mode:             "full",
+		ThinkingMessages: true,
+		ThinkingMaxLen:   300,
+		ToolMaxLen:       500,
+		ToolMessages:     true,
+		HideAgentFooter:  true,
+	})
+
+	sessionKey := "telegram:user-agent-footer"
+	session := e.sessions.GetOrCreateActive(sessionKey)
+	agentSession := newControllableSession("s-agent-footer")
+	state := &interactiveState{
+		agentSession: agentSession,
+		platform:     p,
+		replyCtx:     "ctx-agent-footer",
+	}
+	e.interactiveStates[sessionKey] = state
+
+	agentSession.events <- Event{Type: EventText, Content: "answer\n\n*claude-opus-4-8[1m] · out 788 · in 442 cw 0 cr 395.1k · ctx 40%*"}
+	agentSession.events <- Event{Type: EventResult, Done: true}
+	e.processInteractiveEvents(state, session, e.sessions, sessionKey, "m-agent-footer", time.Now(), nil, nil, state.replyCtx)
+
+	sent := p.getSent()
+	if len(sent) != 1 {
+		t.Fatalf("sent = %#v, want one final reply", sent)
+	}
+	if sent[0] != "answer" {
+		t.Fatalf("final reply = %q, want %q", sent[0], "answer")
+	}
+	if got := session.GetHistory(0); len(got) != 1 || got[0].Content != "answer" {
+		t.Fatalf("history = %#v, want filtered answer", got)
+	}
+}
+
+func TestProcessInteractiveEvents_KeepsAgentFooterByDefault(t *testing.T) {
+	p := &stubPlatformEngine{n: "telegram"}
+	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+
+	sessionKey := "telegram:user-agent-footer-default"
+	session := e.sessions.GetOrCreateActive(sessionKey)
+	agentSession := newControllableSession("s-agent-footer-default")
+	state := &interactiveState{
+		agentSession: agentSession,
+		platform:     p,
+		replyCtx:     "ctx-agent-footer-default",
+	}
+	e.interactiveStates[sessionKey] = state
+
+	body := "answer\n\n*claude-opus-4-8[1m] · out 788 · in 442 cw 0 cr 395.1k · ctx 40%*"
+	agentSession.events <- Event{Type: EventText, Content: body}
+	agentSession.events <- Event{Type: EventResult, Done: true}
+	e.processInteractiveEvents(state, session, e.sessions, sessionKey, "m-agent-footer-default", time.Now(), nil, nil, state.replyCtx)
+
+	sent := p.getSent()
+	if len(sent) != 1 {
+		t.Fatalf("sent = %#v, want one final reply", sent)
+	}
+	if sent[0] != body {
+		t.Fatalf("final reply = %q, want %q", sent[0], body)
+	}
+}
+
+func TestStripAgentFooterLines(t *testing.T) {
+	input := "answer\n\n*gpt-5.5 · xhigh · out 864 in 177.7k cr 175.5k · ctx 69%*"
+	if got, want := stripAgentFooterLines(input), "answer"; got != want {
+		t.Fatalf("stripAgentFooterLines() = %q, want %q", got, want)
+	}
+
+	prose := "The words out 10 in 20 ctx 30% can appear in prose."
+	if got := stripAgentFooterLines(prose); got != prose {
+		t.Fatalf("stripAgentFooterLines() stripped prose: %q", got)
+	}
+}
+
 // TestProcessInteractiveEvents_NonTerminalResultContinuesTurn pins issue #481:
 // when Claude Code emits a mid-turn compaction result (Done=false), the engine
 // must NOT treat it as turn completion. Subsequent EventText (analogous to a
@@ -1100,10 +1180,10 @@ func TestProcessInteractiveEvents_NonTerminalResultContinuesTurn(t *testing.T) {
 	session := e.sessions.GetOrCreateActive(sessionKey)
 	agentSession := newControllableSession("s1")
 	state := &interactiveState{
-		agentSession:                  agentSession,
-		platform:                      p,
-		replyCtx:                      "ctx-1",
-		currentTurnUserMessageTimeMs:  100,
+		agentSession:                   agentSession,
+		platform:                       p,
+		replyCtx:                       "ctx-1",
+		currentTurnUserMessageTimeMs:   100,
 		lastCompletedUserMessageTimeMs: 0,
 	}
 	e.interactiveStates[sessionKey] = state
@@ -5798,6 +5878,37 @@ func TestHandleMessage_ExtraContentOnlyIsProcessed(t *testing.T) {
 	}
 }
 
+func TestHandleMessage_OnAcceptedOnlyRunsForAgentTurn(t *testing.T) {
+	p := &stubPlatformEngine{n: "test"}
+	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+
+	commandAccepted := false
+	e.handleMessage(p, &Message{
+		SessionKey: "test:command-user",
+		ReplyCtx:   "ctx",
+		Content:    "/status",
+		Platform:   "test",
+		UserID:     "command-user",
+		OnAccepted: func() { commandAccepted = true },
+	})
+	if commandAccepted {
+		t.Fatal("handled command consumed agent-bound context")
+	}
+
+	agentAccepted := false
+	e.handleMessage(p, &Message{
+		SessionKey: "test:agent-user",
+		ReplyCtx:   "ctx",
+		Content:    "hello",
+		Platform:   "test",
+		UserID:     "agent-user",
+		OnAccepted: func() { agentAccepted = true },
+	})
+	if !agentAccepted {
+		t.Fatal("agent-bound message did not run OnAccepted")
+	}
+}
+
 func TestCmdDiff_RejectsDashTarget(t *testing.T) {
 	p := &stubPlatformEngine{n: "test"}
 	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
@@ -6493,7 +6604,7 @@ func TestProcessInteractiveEvents_AskUserQuestionFromAgent_RendersRichCardPrompt
 
 	sendDone := make(chan error, 1)
 	go func() {
-		sendDone <- sess.Send("prompt", nil, nil)
+		sendDone <- sess.Send("prompt", "", nil, nil)
 	}()
 
 	done := make(chan struct{})
@@ -6562,7 +6673,7 @@ func TestProcessInteractiveEvents_AskUserQuestionFromAgent_RendersLegacyPrompt(t
 
 	sendDone := make(chan error, 1)
 	go func() {
-		sendDone <- sess.Send("prompt", nil, nil)
+		sendDone <- sess.Send("prompt", "", nil, nil)
 	}()
 
 	done := make(chan struct{})
@@ -6779,6 +6890,181 @@ func TestHandlePendingPermission_AskUserQuestion_SkipsPermFlow(t *testing.T) {
 	}
 }
 
+// TestHandlePendingPermission_ExtensionConfirm_AllowIsPermissionAllow is a
+// regression test for the fcb1beae regression: extension_confirm events
+// (forwarded by the pi session for ctx.ui.confirm, used by extensions like
+// permission-gate to ask the user for tool-use permission) must be handled
+// as a regular permission request. "allow" / "deny" / "allow all" must be
+// interpreted as permission decisions, NOT as free-text answers to a
+// AskUserQuestion-style Yes/No question.
+//
+// The bug: fcb1beae routed extension_confirm through the AskUserQuestion
+// flow (populated Questions=[{Yes, No}] in forwardConfirm). That made the
+// engine render a Yes/No question card on Feishu instead of an Allow/Deny
+// permission card, breaking the UX for permission-gate and any other
+// extension that uses ctx.ui.confirm for permission decisions.
+func TestHandlePendingPermission_ExtensionConfirm_AllowIsPermissionAllow(t *testing.T) {
+	e := newTestEngine()
+	p := &stubPlatformEngine{n: "test"}
+	rec := &recordingAgentSession{}
+
+	state := &interactiveState{
+		agentSession: rec,
+		platform:     p,
+		replyCtx:     "ctx",
+		pending: &pendingPermission{
+			RequestID: "pi_ext_cfm-1",
+			ToolName:  "extension_confirm",
+			ToolInput: map[string]any{
+				"title":   "Command needs confirmation",
+				"message": "rm -rf /tmp/foo",
+				"method":  "confirm",
+			},
+			// No Questions field — extension_confirm must NOT carry one.
+			// Questions: nil,
+			Resolved: make(chan struct{}),
+		},
+	}
+	e.interactiveMu.Lock()
+	e.interactiveStates["test:chat:user1"] = state
+	e.interactiveMu.Unlock()
+
+	// User clicks "allow" — must be treated as permission allow, not as a
+	// free-text answer to a Yes/No question.
+	if !e.handlePendingPermission(p, &Message{
+		SessionKey: "test:chat:user1",
+		UserID:     "user1",
+		Content:    "allow",
+		ReplyCtx:   "ctx",
+	}, "allow", "") {
+		t.Fatal("expected handlePendingPermission to return true")
+	}
+
+	if rec.calls != 1 {
+		t.Fatalf("RespondPermission calls = %d, want 1", rec.calls)
+	}
+	if rec.lastResult.Behavior != "allow" {
+		t.Fatalf("Behavior = %q, want %q (extension_confirm must treat 'allow' as permission allow)", rec.lastResult.Behavior, "allow")
+	}
+	if _, ok := rec.lastResult.UpdatedInput["answers"]; ok {
+		t.Errorf("UpdatedInput must not carry AskUserQuestion answers, got %v", rec.lastResult.UpdatedInput)
+	}
+
+	state.mu.Lock()
+	if state.pending != nil {
+		t.Error("expected pending to be cleared after 'allow'")
+	}
+	state.mu.Unlock()
+}
+
+// TestHandlePendingPermission_ExtensionConfirm_DenyIsPermissionDeny covers
+// the deny half of the same regression: "deny" must produce Behavior="deny"
+// and clear the pending state.
+func TestHandlePendingPermission_ExtensionConfirm_DenyIsPermissionDeny(t *testing.T) {
+	e := newTestEngine()
+	p := &stubPlatformEngine{n: "test"}
+	rec := &recordingAgentSession{}
+
+	state := &interactiveState{
+		agentSession: rec,
+		platform:     p,
+		replyCtx:     "ctx",
+		pending: &pendingPermission{
+			RequestID: "pi_ext_cfm-1",
+			ToolName:  "extension_confirm",
+			ToolInput: map[string]any{
+				"title":   "Command needs confirmation",
+				"message": "rm -rf /tmp/foo",
+				"method":  "confirm",
+			},
+			Resolved: make(chan struct{}),
+		},
+	}
+	e.interactiveMu.Lock()
+	e.interactiveStates["test:chat:user1"] = state
+	e.interactiveMu.Unlock()
+
+	if !e.handlePendingPermission(p, &Message{
+		SessionKey: "test:chat:user1",
+		UserID:     "user1",
+		Content:    "deny",
+		ReplyCtx:   "ctx",
+	}, "deny", "") {
+		t.Fatal("expected handlePendingPermission to return true")
+	}
+
+	if rec.lastResult.Behavior != "deny" {
+		t.Fatalf("Behavior = %q, want %q", rec.lastResult.Behavior, "deny")
+	}
+}
+
+// TestHandlePendingPermission_ExtensionSelect_StillRoutedAsAskUserQuestion
+// is the counterpart guard test: extension_select (used by the questionnaire
+// extension in RPC mode) MUST still be routed through the AskUserQuestion
+// flow, with its Questions field preserved. This test exists so that a future
+// refactor of the AskUserQuestion detection doesn't accidentally pull
+// extension_select back into the regular permission path and break the
+// button-card UX for questionnaire / multi-choice prompts.
+func TestHandlePendingPermission_ExtensionSelect_StillRoutedAsAskUserQuestion(t *testing.T) {
+	e := newTestEngine()
+	p := &stubPlatformEngine{n: "test"}
+	rec := &recordingAgentSession{}
+
+	state := &interactiveState{
+		agentSession: rec,
+		platform:     p,
+		replyCtx:     "ctx",
+		pending: &pendingPermission{
+			RequestID: "pi_ext_sel-1",
+			ToolName:  "extension_select",
+			ToolInput: map[string]any{
+				"title":   "Pick a color",
+				"options": []any{"Red", "Green", "Blue"},
+				"method":  "select",
+			},
+			Questions: []UserQuestion{{
+				Question: "Pick a color",
+				Header:   "Select",
+				Options: []UserQuestionOption{
+					{Label: "Red"},
+					{Label: "Green"},
+					{Label: "Blue"},
+				},
+				MultiSelect: false,
+			}},
+			Resolved: make(chan struct{}),
+		},
+	}
+	e.interactiveMu.Lock()
+	e.interactiveStates["test:chat:user1"] = state
+	e.interactiveMu.Unlock()
+
+	// "allow" must be treated as a free-text answer to the question, NOT as
+	// a permission allow. If this assertion fails, the engine has pulled
+	// extension_select back into the regular permission path.
+	if !e.handlePendingPermission(p, &Message{
+		SessionKey: "test:chat:user1",
+		UserID:     "user1",
+		Content:    "allow",
+		ReplyCtx:   "ctx",
+	}, "allow", "") {
+		t.Fatal("expected handlePendingPermission to return true")
+	}
+
+	answers, ok := rec.lastResult.UpdatedInput["answers"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected answers in updatedInput (AskUserQuestion flow), got %v", rec.lastResult.UpdatedInput)
+	}
+	if answers["Pick a color"] != "allow" {
+		t.Errorf("expected answer 'allow' preserved as free text, got %v", answers["Pick a color"])
+	}
+	// The decisive signal that this is the AskUserQuestion path (not the
+	// regular permission path) is the presence of an "answers" key in
+	// UpdatedInput. extension_select must take this path; extension_confirm
+	// (the regression) must NOT. If a future refactor ever strips
+	// extension_select out of the AskUserQuestion list, this test catches it.
+}
+
 // TestHandlePendingPermission_CronFallback verifies that the fallback path
 // in handlePendingPermission can locate a pending permission stored under a
 // cron composite key ("sessionKey#cron:sid") when the callback uses the
@@ -6863,7 +7149,7 @@ func newControllableSession(id string) *controllableAgentSession {
 	}
 }
 
-func (s *controllableAgentSession) Send(_ string, _ []ImageAttachment, _ []FileAttachment) error {
+func (s *controllableAgentSession) Send(_ string, _ string, _ []ImageAttachment, _ []FileAttachment) error {
 	return nil
 }
 func (s *controllableAgentSession) RespondPermission(_ string, _ PermissionResult) error { return nil }
@@ -6889,6 +7175,43 @@ func (s *controllableAgentSession) Close() error {
 		close(s.closed)
 	}
 	return nil
+}
+
+func waitForInteractiveStateRemoved(t *testing.T, e *Engine, key string) {
+	t.Helper()
+	deadline := time.After(500 * time.Millisecond)
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		e.interactiveMu.Lock()
+		current := e.interactiveStates[key]
+		e.interactiveMu.Unlock()
+		if current == nil {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatal("expected idle timeout cleanup to remove interactive state")
+		case <-ticker.C:
+		}
+	}
+}
+
+func waitForAgentSessionID(t *testing.T, session *Session, want string) {
+	t.Helper()
+	deadline := time.After(500 * time.Millisecond)
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if got := session.GetAgentSessionID(); got == want {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("agent session id = %q, want %q", session.GetAgentSessionID(), want)
+		case <-ticker.C:
+		}
+	}
 }
 
 // controllableAgent lets tests control which session is returned by StartSession.
@@ -6990,6 +7313,129 @@ func TestCleanupCAS_UnconditionalWithoutExpected(t *testing.T) {
 	if current != nil {
 		t.Fatal("expected unconditional cleanup to delete state")
 	}
+}
+
+func TestAgentSessionIdleTimeout_ClosesIdleLiveSession(t *testing.T) {
+	e := newTestEngine()
+	e.SetAgentSessionIdleTimeout(20 * time.Millisecond)
+	key := "test:user1"
+	sess := newControllableSession("s1")
+	state := &interactiveState{agentSession: sess, eventsNeedResync: false}
+
+	e.interactiveMu.Lock()
+	e.interactiveStates[key] = state
+	e.interactiveMu.Unlock()
+
+	e.scheduleAgentSessionIdleClose(key, state)
+
+	select {
+	case <-sess.closed:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("agent session was not closed after idle timeout")
+	}
+
+	waitForInteractiveStateRemoved(t, e, key)
+}
+
+func TestAgentSessionIdleTimeout_CancelPreventsClose(t *testing.T) {
+	e := newTestEngine()
+	e.SetAgentSessionIdleTimeout(20 * time.Millisecond)
+	key := "test:user1"
+	sess := newControllableSession("s1")
+	state := &interactiveState{agentSession: sess, eventsNeedResync: false}
+
+	e.interactiveMu.Lock()
+	e.interactiveStates[key] = state
+	e.interactiveMu.Unlock()
+
+	e.scheduleAgentSessionIdleClose(key, state)
+	e.cancelAgentSessionIdleClose(state)
+
+	select {
+	case <-sess.closed:
+		t.Fatal("agent session closed even though idle close was cancelled")
+	case <-time.After(80 * time.Millisecond):
+	}
+
+	e.interactiveMu.Lock()
+	current := e.interactiveStates[key]
+	e.interactiveMu.Unlock()
+	if current != state {
+		t.Fatal("expected interactive state to remain after cancelling idle close")
+	}
+}
+
+func TestAgentSessionIdleTimeout_DisableCancelsScheduledClose(t *testing.T) {
+	e := newTestEngine()
+	e.SetAgentSessionIdleTimeout(20 * time.Millisecond)
+	key := "test:user1"
+	sess := newControllableSession("s1")
+	state := &interactiveState{agentSession: sess, eventsNeedResync: false}
+
+	e.interactiveMu.Lock()
+	e.interactiveStates[key] = state
+	e.interactiveMu.Unlock()
+
+	e.scheduleAgentSessionIdleClose(key, state)
+	e.SetAgentSessionIdleTimeout(0)
+
+	select {
+	case <-sess.closed:
+		t.Fatal("agent session closed after idle timeout was disabled")
+	case <-time.After(80 * time.Millisecond):
+	}
+}
+
+func TestAgentSessionIdleTimeout_StaleTokenDoesNotCloseSession(t *testing.T) {
+	e := newTestEngine()
+	key := "test:user1"
+	sess := newControllableSession("s1")
+	state := &interactiveState{
+		agentSession:           sess,
+		eventsNeedResync:       false,
+		agentSessionIdleToken:  2,
+		agentSessionIdleCancel: func() {},
+	}
+
+	e.interactiveMu.Lock()
+	e.interactiveStates[key] = state
+	e.interactiveMu.Unlock()
+
+	e.cleanupInteractiveStateForIdleToken(key, state, 1, 20*time.Millisecond)
+
+	select {
+	case <-sess.closed:
+		t.Fatal("stale idle token closed the live agent session")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	e.interactiveMu.Lock()
+	current := e.interactiveStates[key]
+	e.interactiveMu.Unlock()
+	if current != state {
+		t.Fatal("expected stale idle token to leave interactive state in place")
+	}
+}
+
+func TestProcessInteractiveMessage_SchedulesAgentSessionIdleCloseAfterCleanTurn(t *testing.T) {
+	p := &stubPlatformEngine{n: "test"}
+	sess := newResultAgentSession("done")
+	agent := &controllableAgent{nextSession: sess}
+	e := NewEngine("test", agent, []Platform{p}, filepath.Join(t.TempDir(), "sessions.json"), LangEnglish)
+	e.SetAgentSessionIdleTimeout(20 * time.Millisecond)
+	session := e.sessions.GetOrCreateActive("test:chat:user1")
+
+	go e.processInteractiveMessageWith(p, &Message{
+		Platform:   "test",
+		SessionKey: "test:chat:user1",
+		UserID:     "user1",
+		UserName:   "User One",
+		Content:    "hello",
+		ReplyCtx:   "ctx",
+	}, session, agent, e.sessions, "test:chat:user1", "", "")
+
+	waitForAgentSessionID(t, session, "result-session")
+	waitForInteractiveStateRemoved(t, e, "test:chat:user1")
 }
 
 // TestCleanupCAS_ConcurrentUnconditionalCloseOnce verifies that two concurrent
@@ -8018,7 +8464,7 @@ func newQueuingSession(id string) *queuingAgentSession {
 	}
 }
 
-func (s *queuingAgentSession) Send(prompt string, _ []ImageAttachment, _ []FileAttachment) error {
+func (s *queuingAgentSession) Send(prompt string, _ string, _ []ImageAttachment, _ []FileAttachment) error {
 	s.sendMu.Lock()
 	s.sendCalls = append(s.sendCalls, prompt)
 	s.sendMu.Unlock()
@@ -8046,7 +8492,7 @@ func newBlockingSendSession(id string) *blockingSendAgentSession {
 	}
 }
 
-func (s *blockingSendAgentSession) Send(_ string, _ []ImageAttachment, _ []FileAttachment) error {
+func (s *blockingSendAgentSession) Send(_ string, _ string, _ []ImageAttachment, _ []FileAttachment) error {
 	s.sendStarted <- struct{}{}
 	<-s.unblock
 	return nil
@@ -8141,7 +8587,7 @@ func TestProcessInteractiveEvents_PermissionWhileSendBlocked(t *testing.T) {
 
 	sendDone := make(chan error, 1)
 	go func() {
-		sendDone <- sess.Send("prompt", nil, nil)
+		sendDone <- sess.Send("prompt", "", nil, nil)
 	}()
 
 	done := make(chan struct{})
@@ -14529,7 +14975,7 @@ func newCodexLikeSession(threadID string) *codexLikeSession {
 	}
 }
 
-func (s *codexLikeSession) Send(prompt string, _ []ImageAttachment, _ []FileAttachment) error {
+func (s *codexLikeSession) Send(prompt string, _ string, _ []ImageAttachment, _ []FileAttachment) error {
 	s.hasSentID = true
 	s.events <- Event{Type: EventText, Content: "Agent reply to: " + prompt}
 	s.events <- Event{Type: EventResult, SessionID: s.threadID, Content: "Done", Done: true}
@@ -14632,7 +15078,7 @@ func newClaudeCodeLikeSession(threadID string) *claudeCodeLikeSession {
 	}
 }
 
-func (s *claudeCodeLikeSession) Send(prompt string, _ []ImageAttachment, _ []FileAttachment) error {
+func (s *claudeCodeLikeSession) Send(prompt string, _ string, _ []ImageAttachment, _ []FileAttachment) error {
 	s.hasSentID = true
 	// claudecode sends an early system event with SessionID (empty content)
 	s.events <- Event{Type: EventText, Content: "", SessionID: s.threadID}
@@ -14702,7 +15148,7 @@ func newACPLikeSession(threadID string) *acpLikeSession {
 	}
 }
 
-func (s *acpLikeSession) Send(prompt string, _ []ImageAttachment, _ []FileAttachment) error {
+func (s *acpLikeSession) Send(prompt string, _ string, _ []ImageAttachment, _ []FileAttachment) error {
 	s.events <- Event{Type: EventText, Content: "Reply", SessionID: s.threadID}
 	s.events <- Event{Type: EventResult, SessionID: s.threadID, Content: "Done", Done: true}
 	return nil
@@ -15016,8 +15462,8 @@ func TestIsAllowResponse_WithMultipleMentions(t *testing.T) {
 func TestIsAllowResponse_NotInsideOtherWord(t *testing.T) {
 	cases := []string{
 		"禁止允许这种",
-		"不允许这样",   // "不允许" has its own deny entry, but as part of "不允许这样" the user clearly is denying / negating, never allowing.
-		"我不太允许这件事", // long sentence, no token equals "允许"
+		"不允许这样",                            // "不允许" has its own deny entry, but as part of "不允许这样" the user clearly is denying / negating, never allowing.
+		"我不太允许这件事",                         // long sentence, no token equals "允许"
 		"please don't allowall the things", // FieldsFunc keeps "allowall" intact, but it is the approveAll single-token form, not allow.
 		"hello world",
 		"",
@@ -15045,7 +15491,7 @@ func TestIsDenyResponse_WithMention(t *testing.T) {
 	}
 
 	negatives := []string{
-		"拒绝症患者",       // embedded — must not match
+		"拒绝症患者",        // embedded — must not match
 		"我们都不应该 hello", // unrelated
 	}
 	for _, s := range negatives {
@@ -15375,5 +15821,82 @@ func TestAgentSystemPrompt_DocumentsAudioVideoFlags(t *testing.T) {
 	// doesn't silently downgrade --audio/--video to --file.
 	if !strings.Contains(prompt, "Do NOT downgrade") {
 		t.Error("AgentSystemPrompt missing the 'Do NOT downgrade' anti-regression line")
+	}
+}
+
+// --- Regression: streaming-card silent reply must not leak the NO_REPLY marker ---
+
+// recordingStreamCard captures the content passed to Finalize so tests can
+// assert what was rendered into the card.
+type recordingStreamCard struct {
+	mu      sync.Mutex
+	final   bool
+	content string
+}
+
+func (c *recordingStreamCard) Update(_ context.Context, _ string) error { return nil }
+func (c *recordingStreamCard) Finalize(_ context.Context, content string) error {
+	c.mu.Lock()
+	c.final = true
+	c.content = content
+	c.mu.Unlock()
+	return nil
+}
+func (c *recordingStreamCard) Failed() bool { return false }
+func (c *recordingStreamCard) finalized() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.final
+}
+func (c *recordingStreamCard) finalContent() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.content
+}
+
+// recordingStreamCardPlatform is a StreamingCardPlatform whose card records the
+// finalized content for assertions.
+type recordingStreamCardPlatform struct {
+	stubPlatformEngine
+	card *recordingStreamCard
+}
+
+func (p *recordingStreamCardPlatform) CreateStreamingCard(_ context.Context, _ any) (StreamingCard, error) {
+	return p.card, nil
+}
+
+// TestProcessInteractiveEvents_StreamingCard_BareNoReply_Suppressed is a
+// regression test for the bug where a silent (bare NO_REPLY) turn on a
+// StreamingCardPlatform rendered the literal "NO_REPLY" marker into the card:
+// the streamCard finalize branch ran before — and shadowed — the isSilent
+// suppression branch, so buildCardContent received the raw NO_REPLY response.
+// The card must finalize WITHOUT the marker on a silent turn.
+func TestProcessInteractiveEvents_StreamingCard_BareNoReply_Suppressed(t *testing.T) {
+	card := &recordingStreamCard{}
+	p := &recordingStreamCardPlatform{
+		stubPlatformEngine: stubPlatformEngine{n: "slack"},
+		card:               card,
+	}
+	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	sessionKey := "slack:user-streamcard-bare-noreply"
+	session := e.sessions.GetOrCreateActive(sessionKey)
+	agentSession := newControllableSession("s-streamcard-bare-noreply")
+	state := &interactiveState{
+		agentSession: agentSession,
+		platform:     p,
+		replyCtx:     "ctx-streamcard-bare-noreply",
+	}
+	e.interactiveStates[sessionKey] = state
+
+	agentSession.events <- Event{Type: EventText, Content: "NO_REPLY"}
+	agentSession.events <- Event{Type: EventResult, Content: "NO_REPLY", Done: true}
+
+	e.processInteractiveEvents(state, session, e.sessions, sessionKey, "m-streamcard-bare-noreply", time.Now(), nil, nil, state.replyCtx)
+
+	if !card.finalized() {
+		t.Fatalf("expected streaming card to be finalized on a silent turn")
+	}
+	if strings.Contains(card.finalContent(), "NO_REPLY") {
+		t.Fatalf("silent reply leaked NO_REPLY into the streaming card: %q", card.finalContent())
 	}
 }
