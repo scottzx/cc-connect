@@ -209,13 +209,13 @@ func mapBridgeEvent(msg wireMsg) (core.Event, bool) {
 // attachments (mapped to ACP image content blocks by the 1acp runtime);
 // files are saved to disk and referenced by path, since the ACP prompt only
 // accepts image/* and audio/* attachments.
-func (s *bridgeSession) Send(prompt string, images []core.ImageAttachment, files []core.FileAttachment) error {
+func (s *bridgeSession) Send(prompt string, messageID string, images []core.ImageAttachment, files []core.FileAttachment) error {
 	if !s.alive.Load() {
 		return fmt.Errorf("1acp_claude: session closed")
 	}
 
 	if len(files) > 0 {
-		paths := core.SaveFilesToDisk(s.workDir, files)
+		paths := core.SaveFilesToDisk(s.workDir, messageID, files)
 		prompt = core.AppendFileRefs(prompt, paths)
 	}
 

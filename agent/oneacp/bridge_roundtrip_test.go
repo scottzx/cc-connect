@@ -67,7 +67,7 @@ func TestBridgeSessionRoundTrip(t *testing.T) {
 	}
 
 	img := core.ImageAttachment{MimeType: "image/jpeg", Data: []byte{0xFF, 0xD8, 0xFF}, FileName: "p.jpg"}
-	if err := sess.Send("look at this", []core.ImageAttachment{img}, nil); err != nil {
+	if err := sess.Send("look at this", "", []core.ImageAttachment{img}, nil); err != nil {
 		t.Fatalf("Send failed: %v", err)
 	}
 
