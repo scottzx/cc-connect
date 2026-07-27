@@ -3,14 +3,14 @@ import { useTranslation } from 'react-i18next';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import {
   ArrowLeft, Plug, Heart, Settings, Layers, Zap, Pause, Play,
-  Trash2, Plus, Check, Clock, ExternalLink, Link2, RefreshCw,
+  Trash2, Plus, Check, Clock, ExternalLink, Link2, RefreshCw, ChevronDown,
 } from 'lucide-react';
 import { Card, Badge, Button, Input, Modal, EmptyState } from '@/components/ui';
-import { getProject, updateProject, deleteProject, listAgentTypes, setChannelAgent, type ProjectDetail as ProjectDetailType } from '@/api/projects';
+import { getProject, updateProject, deleteProject, listAgentTypes, setChannelAgent, listProjects, addPlatformToProject, type ProjectDetail as ProjectDetailType, type ProjectSummary } from '@/api/projects';
 import { listProviders, addProvider, removeProvider, activateProvider, type Provider, listGlobalProviders, type GlobalProvider, saveProviderRefs } from '@/api/providers';
 import { getHeartbeat, pauseHeartbeat, resumeHeartbeat, triggerHeartbeat, setHeartbeatInterval, type HeartbeatStatus } from '@/api/heartbeat';
 import { restartSystem } from '@/api/status';
-import { formatTime, cn } from '@/lib/utils';
+import { formatTime, cn, projectDisplayName } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth';
 import PlatformSetupQR from './PlatformSetupQR';
 import PlatformManualForm from './PlatformManualForm';
@@ -65,6 +65,11 @@ export default function ProjectDetail() {
   // Agent type
   const [agentTypes, setAgentTypes] = useState<string[]>([]);
   const [selectedAgentType, setSelectedAgentType] = useState('');
+
+  // Header agent switcher (jump between / create sibling `<slug>__<agent>` projects)
+  const [allProjects, setAllProjects] = useState<ProjectSummary[]>([]);
+  const [agentMenuOpen, setAgentMenuOpen] = useState(false);
+  const [switchingAgent, setSwitchingAgent] = useState(false);
 
   // Global providers & refs
   const [globalProviders, setGlobalProviders] = useState<GlobalProvider[]>([]);
@@ -147,12 +152,13 @@ export default function ProjectDetail() {
     if (!name) return;
     try {
       setLoading(true);
-      const [proj, provs, hb, gp, at] = await Promise.allSettled([
+      const [proj, provs, hb, gp, at, pl] = await Promise.allSettled([
         getProject(name),
         listProviders(name),
         getHeartbeat(name),
         listGlobalProviders(),
         listAgentTypes(),
+        listProjects(),
       ]);
       if (proj.status === 'fulfilled') {
         setProject(proj.value);
@@ -186,6 +192,9 @@ export default function ProjectDetail() {
       }
       if (at.status === 'fulfilled') {
         setAgentTypes((at.value.agents || []).sort());
+      }
+      if (pl.status === 'fulfilled') {
+        setAllProjects(pl.value.projects || []);
       }
     } finally {
       setLoading(false);
@@ -273,6 +282,47 @@ export default function ProjectDetail() {
 
   const isEmbedded = window.self !== window.top || (globalThis as any).__CC_EMBED_MODE__ === true;
 
+  // Agent switcher: the project name is `<slug>__<agentType>`. Strip the suffix
+  // for display, and let the user jump to (or create) a sibling project running
+  // a different agent on the same workspace slug.
+  const agentSuffix = project ? `__${project.agent_type}` : '';
+  const slug = project && name && name.endsWith(agentSuffix)
+    ? name.slice(0, name.length - agentSuffix.length)
+    : '';
+  const canSwitchAgent = !!(project && slug);
+  const displayName = project ? projectDisplayName(name || '', project.agent_type) : (name || '');
+  const siblingExists = (agent: string) => allProjects.some(p => p.name === `${slug}__${agent}`);
+
+  // Only agents that work with just a work_dir are offered for one-click create.
+  // Others (e.g. `acp` needs a `command`) would produce an invalid project that
+  // breaks the cc-connect engine on startup — see GitHub issue. Always keep the
+  // current project's agent visible so it can still be marked/selected.
+  const SWITCHABLE_AGENTS = ['claudecode', 'codex'];
+  const switchableAgents = project && !SWITCHABLE_AGENTS.includes(project.agent_type)
+    ? [project.agent_type, ...SWITCHABLE_AGENTS]
+    : SWITCHABLE_AGENTS;
+
+  const handleSwitchAgent = async (agent: string) => {
+    setAgentMenuOpen(false);
+    if (!project || !canSwitchAgent || agent === project.agent_type) return;
+    const target = `${slug}__${agent}`;
+    if (siblingExists(agent)) {
+      navigate(`/projects/${target}`);
+      return;
+    }
+    try {
+      setSwitchingAgent(true);
+      // add-platform creates the project in config when it doesn't exist yet,
+      // seeding it with the bridge platform + work_dir copied from this sibling.
+      await addPlatformToProject(target, { type: 'bridge', options: {}, work_dir: project.work_dir, agent_type: agent });
+      await restartSystem();
+      await waitForService(8000);
+      navigate(`/projects/${target}`);
+    } finally {
+      setSwitchingAgent(false);
+    }
+  };
+
   return (
     <div className="space-y-6 animate-fade-in ">
       {/* Back + title */}
@@ -283,8 +333,50 @@ export default function ProjectDetail() {
               <ArrowLeft size={18} className="text-gray-400" />
             </Link>
           )}
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white break-all leading-tight">{name}</h2>
-          {project && <Badge variant="info" className="shrink-0">{project.agent_type}</Badge>}
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white break-all leading-tight">{displayName}</h2>
+          {project && canSwitchAgent ? (
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setAgentMenuOpen(o => !o)}
+                disabled={switchingAgent}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors disabled:opacity-60"
+                title={t('projects.switchAgent', 'Switch agent')}
+              >
+                {switchingAgent ? t('projects.switchingAgent', 'Switching…') : project.agent_type}
+                <ChevronDown size={12} />
+              </button>
+              {agentMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setAgentMenuOpen(false)} />
+                  <div className="absolute left-0 mt-1 z-20 min-w-[150px] max-h-64 overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg py-1">
+                    {switchableAgents.map(a => {
+                      const isCurrent = a === project.agent_type;
+                      const exists = siblingExists(a);
+                      return (
+                        <button
+                          key={a}
+                          type="button"
+                          onClick={() => handleSwitchAgent(a)}
+                          className={cn(
+                            'flex w-full items-center justify-between gap-2 px-3 py-1.5 text-xs text-left hover:bg-gray-100 dark:hover:bg-gray-700/60 transition-colors',
+                            isCurrent && 'font-semibold text-blue-600 dark:text-blue-400',
+                          )}
+                        >
+                          <span className="truncate">{a}</span>
+                          {isCurrent ? <Check size={12} className="shrink-0" />
+                            : !exists ? <span className="shrink-0 text-[10px] text-gray-400">{t('projects.createNew', '新建')}</span>
+                            : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+          ) : (
+            project && <Badge variant="info" className="shrink-0">{project.agent_type}</Badge>
+          )}
         </div>
 
         {isEmbedded && (
